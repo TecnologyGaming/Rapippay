@@ -11,14 +11,17 @@ import {
   Image,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 
 const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
+const ADMIN_HEADERS = { 'X-Admin-Secret': 'zinli-admin-2024' };
 
 interface Order {
   id: string;
@@ -33,6 +36,26 @@ interface Order {
   created_at: string;
   order_type: string;
   zinli_email?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  is_admin: boolean;
+  is_active: boolean;
+  order_count: number;
+  created_at: string;
+}
+
+interface Banner {
+  id: string;
+  image_base64: string;
+  link?: string;
+  order: number;
+  is_active: boolean;
 }
 
 export default function AdminPanel() {
@@ -52,13 +75,24 @@ export default function AdminPanel() {
   const [changingPassword, setChangingPassword] = useState(false);
 
   // Users management states
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [resetPasswordModal, setResetPasswordModal] = useState<User | null>(null);
+  const [newUserPassword, setNewUserPassword] = useState('');
   
   // Banners management states
-  const [banners, setBanners] = useState<any[]>([]);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [bannersLoading, setBannersLoading] = useState(false);
+  const [newBannerLink, setNewBannerLink] = useState('');
   
   // Payment methods states
   const [bankDetails, setBankDetails] = useState<any>(null);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<string | null>(null);
+  const [pagoMovilData, setPagoMovilData] = useState({ bank: '', phone: '', id: '', name: '' });
+  const [transferenciaData, setTransferenciaData] = useState({ bank: '', account_type: '', account_number: '', id: '', name: '' });
+  const [binanceData, setBinanceData] = useState({ email: '', user_id: '' });
+  const [paypalData, setPaypalData] = useState({ email: '' });
 
   useEffect(() => {
     checkSession();
@@ -89,21 +123,169 @@ export default function AdminPanel() {
 
   const loadData = async () => {
     try {
-      const adminHeaders = { 'X-Admin-Secret': 'zinli-admin-2024' };
-      
       const [ordersRes, configRes] = await Promise.all([
-        axios.get(`${BACKEND_URL}/api/admin/orders`, { headers: adminHeaders }),
+        axios.get(`${BACKEND_URL}/api/admin/orders`, { headers: ADMIN_HEADERS }),
         axios.get(`${BACKEND_URL}/api/config`),
       ]);
 
       setOrders(ordersRes.data);
       setExchangeRate(configRes.data.exchange_rate.toString());
       setCommission(configRes.data.commission_percent.toString());
+      
+      // Store bank details for payment methods tab
+      if (configRes.data.bank_details) {
+        setBankDetails(configRes.data.bank_details);
+        setPagoMovilData(configRes.data.bank_details.pago_movil || { bank: '', phone: '', id: '', name: '' });
+        setTransferenciaData(configRes.data.bank_details.transferencia || { bank: '', account_type: '', account_number: '', id: '', name: '' });
+        setBinanceData(configRes.data.bank_details.binance_pay || { email: '', user_id: '' });
+        setPaypalData(configRes.data.bank_details.paypal || { email: '' });
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       Alert.alert('Error', 'No se pudieron cargar los datos');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load Users
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const res = await axios.get(`${BACKEND_URL}/api/admin/users`, { headers: ADMIN_HEADERS });
+      setUsers(res.data);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      Alert.alert('Error', 'No se pudieron cargar los usuarios');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Load Banners
+  const loadBanners = async () => {
+    setBannersLoading(true);
+    try {
+      const res = await axios.get(`${BACKEND_URL}/api/banners`);
+      setBanners(res.data);
+    } catch (error) {
+      console.error('Error loading banners:', error);
+    } finally {
+      setBannersLoading(false);
+    }
+  };
+
+  // Toggle user status
+  const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/users/${userId}/toggle-status`,
+        {},
+        { headers: ADMIN_HEADERS }
+      );
+      Alert.alert('Éxito', `Usuario ${currentStatus ? 'desactivado' : 'activado'} correctamente`);
+      loadUsers();
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cambiar el estado del usuario');
+    }
+  };
+
+  // Reset user password
+  const handleResetPassword = async () => {
+    if (!resetPasswordModal || !newUserPassword) {
+      Alert.alert('Error', 'Ingresa la nueva contraseña');
+      return;
+    }
+    try {
+      await axios.post(
+        `${BACKEND_URL}/api/admin/users/${resetPasswordModal.id}/reset-password`,
+        { password: newUserPassword },
+        { headers: ADMIN_HEADERS }
+      );
+      Alert.alert('Éxito', 'Contraseña restablecida correctamente');
+      setResetPasswordModal(null);
+      setNewUserPassword('');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo restablecer la contraseña');
+    }
+  };
+
+  // Add new banner
+  const handleAddBanner = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        await axios.post(
+          `${BACKEND_URL}/api/admin/banners`,
+          {
+            image_base64: base64Image,
+            link: newBannerLink || null,
+            order: banners.length,
+          },
+          { headers: ADMIN_HEADERS }
+        );
+        Alert.alert('Éxito', 'Banner agregado correctamente');
+        setNewBannerLink('');
+        loadBanners();
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo agregar el banner');
+    }
+  };
+
+  // Delete banner
+  const handleDeleteBanner = async (bannerId: string) => {
+    Alert.alert(
+      'Eliminar Banner',
+      '¿Estás seguro de eliminar este banner?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(`${BACKEND_URL}/api/admin/banners/${bannerId}`, { headers: ADMIN_HEADERS });
+              Alert.alert('Éxito', 'Banner eliminado');
+              loadBanners();
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo eliminar el banner');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Save payment methods
+  const handleSavePaymentMethods = async () => {
+    try {
+      const updatedBankDetails = {
+        pago_movil: pagoMovilData,
+        transferencia: transferenciaData,
+        binance_pay: binanceData,
+        paypal: paypalData,
+      };
+
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/config`,
+        { bank_details: updatedBankDetails },
+        { headers: ADMIN_HEADERS }
+      );
+      
+      setBankDetails(updatedBankDetails);
+      setEditingPayment(null);
+      Alert.alert('Éxito', 'Métodos de pago actualizados correctamente');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudieron guardar los cambios');
     }
   };
 
@@ -118,7 +300,7 @@ export default function AdminPanel() {
       await axios.patch(
         `${BACKEND_URL}/api/admin/orders/${orderId}`,
         { status },
-        { headers: { 'X-Admin-Secret': 'zinli-admin-2024' } }
+        { headers: ADMIN_HEADERS }
       );
 
       Alert.alert('Éxito', `Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
@@ -142,7 +324,7 @@ export default function AdminPanel() {
           exchange_rate: parseFloat(exchangeRate),
           commission_percent: parseFloat(commission),
         },
-        { headers: { 'X-Admin-Secret': 'zinli-admin-2024' } }
+        { headers: ADMIN_HEADERS }
       );
 
       Alert.alert('Éxito', 'Configuración actualizada correctamente');
@@ -247,33 +429,65 @@ export default function AdminPanel() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'orders' && styles.tabActive]}
-          onPress={() => setActiveTab('orders')}
-        >
-          <Text style={[styles.tabText, activeTab === 'orders' && styles.tabTextActive]}>
-            Pedidos
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'config' && styles.tabActive]}
-          onPress={() => setActiveTab('config')}
-        >
-          <Text style={[styles.tabText, activeTab === 'config' && styles.tabTextActive]}>
-            Configuración
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'password' && styles.tabActive]}
-          onPress={() => setActiveTab('password')}
-        >
-          <Text style={[styles.tabText, activeTab === 'password' && styles.tabTextActive]}>
-            Contraseña
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Tabs - Now scrollable with 6 tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer}>
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'orders' && styles.tabActive]}
+            onPress={() => setActiveTab('orders')}
+          >
+            <Ionicons name="receipt" size={18} color={activeTab === 'orders' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'orders' && styles.tabTextActive]}>
+              Pedidos
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'users' && styles.tabActive]}
+            onPress={() => { setActiveTab('users'); loadUsers(); }}
+          >
+            <Ionicons name="people" size={18} color={activeTab === 'users' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'users' && styles.tabTextActive]}>
+              Usuarios
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'banners' && styles.tabActive]}
+            onPress={() => { setActiveTab('banners'); loadBanners(); }}
+          >
+            <Ionicons name="images" size={18} color={activeTab === 'banners' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'banners' && styles.tabTextActive]}>
+              Banners
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'payments' && styles.tabActive]}
+            onPress={() => setActiveTab('payments')}
+          >
+            <Ionicons name="card" size={18} color={activeTab === 'payments' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'payments' && styles.tabTextActive]}>
+              Pagos
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'config' && styles.tabActive]}
+            onPress={() => setActiveTab('config')}
+          >
+            <Ionicons name="settings" size={18} color={activeTab === 'config' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'config' && styles.tabTextActive]}>
+              Config
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'password' && styles.tabActive]}
+            onPress={() => setActiveTab('password')}
+          >
+            <Ionicons name="key" size={18} color={activeTab === 'password' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'password' && styles.tabTextActive]}>
+              Clave
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
       {/* Content */}
       <ScrollView
@@ -490,6 +704,240 @@ export default function AdminPanel() {
             </View>
           </View>
         )}
+
+        {/* ===== USERS TAB ===== */}
+        {activeTab === 'users' && (
+          <View>
+            <Text style={styles.sectionTitle}>Gestión de Usuarios</Text>
+            {usersLoading ? (
+              <ActivityIndicator size="large" color="#FF5000" style={{ marginTop: 40 }} />
+            ) : users.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>No hay usuarios registrados</Text>
+              </View>
+            ) : (
+              users.map((user) => (
+                <View key={user.id} style={styles.userCard}>
+                  <View style={styles.userHeader}>
+                    <View style={styles.userAvatar}>
+                      <Text style={styles.userInitials}>
+                        {(user.first_name?.[0] || 'U').toUpperCase()}
+                        {(user.last_name?.[0] || '').toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.userInfo}>
+                      <Text style={styles.userName}>{user.first_name} {user.last_name}</Text>
+                      <Text style={styles.userEmail}>{user.email}</Text>
+                      <Text style={styles.userPhone}>{user.phone_number}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: user.is_active ? '#4CAF50' : '#F44336' }]}>
+                      <Text style={styles.statusText}>{user.is_active ? 'Activo' : 'Inactivo'}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.userStats}>
+                    <View style={styles.statItem}>
+                      <Ionicons name="cart" size={16} color="#666" />
+                      <Text style={styles.statText}>{user.order_count} pedidos</Text>
+                    </View>
+                    {user.is_admin && (
+                      <View style={[styles.statusBadge, { backgroundColor: '#FF5000' }]}>
+                        <Text style={styles.statusText}>Admin</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.userActions}>
+                    <TouchableOpacity
+                      style={[styles.userActionBtn, { backgroundColor: user.is_active ? '#FFF3E0' : '#E8F5E9' }]}
+                      onPress={() => handleToggleUserStatus(user.id, user.is_active)}
+                    >
+                      <Ionicons 
+                        name={user.is_active ? 'close-circle' : 'checkmark-circle'} 
+                        size={18} 
+                        color={user.is_active ? '#FF9800' : '#4CAF50'} 
+                      />
+                      <Text style={[styles.userActionText, { color: user.is_active ? '#FF9800' : '#4CAF50' }]}>
+                        {user.is_active ? 'Desactivar' : 'Activar'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.userActionBtn, { backgroundColor: '#E3F2FD' }]}
+                      onPress={() => setResetPasswordModal(user)}
+                    >
+                      <Ionicons name="key" size={18} color="#2196F3" />
+                      <Text style={[styles.userActionText, { color: '#2196F3' }]}>Resetear Clave</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* ===== BANNERS TAB ===== */}
+        {activeTab === 'banners' && (
+          <View>
+            <Text style={styles.sectionTitle}>Gestión de Banners</Text>
+            
+            {/* Add Banner Section */}
+            <View style={styles.addBannerCard}>
+              <Text style={styles.configTitle}>Agregar Nuevo Banner</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Link del banner (opcional)"
+                value={newBannerLink}
+                onChangeText={setNewBannerLink}
+                placeholderTextColor="#999"
+              />
+              <TouchableOpacity style={styles.saveButton} onPress={handleAddBanner}>
+                <Ionicons name="add-circle" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Seleccionar Imagen</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Banners List */}
+            {bannersLoading ? (
+              <ActivityIndicator size="large" color="#FF5000" style={{ marginTop: 20 }} />
+            ) : banners.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="images-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>No hay banners</Text>
+              </View>
+            ) : (
+              banners.map((banner, index) => (
+                <View key={banner.id} style={styles.bannerCard}>
+                  <Image
+                    source={{ uri: banner.image_base64 }}
+                    style={styles.bannerPreview}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.bannerInfo}>
+                    <Text style={styles.bannerOrder}>Orden: {index + 1}</Text>
+                    {banner.link && <Text style={styles.bannerLink} numberOfLines={1}>Link: {banner.link}</Text>}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.deleteBannerBtn}
+                    onPress={() => handleDeleteBanner(banner.id)}
+                  >
+                    <Ionicons name="trash" size={20} color="#F44336" />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* ===== PAYMENT METHODS TAB ===== */}
+        {activeTab === 'payments' && (
+          <View>
+            <Text style={styles.sectionTitle}>Métodos de Pago</Text>
+
+            {/* Pago Móvil */}
+            <View style={styles.paymentCard}>
+              <View style={styles.paymentHeader}>
+                <Ionicons name="phone-portrait" size={24} color="#FF5000" />
+                <Text style={styles.paymentTitle}>Pago Móvil</Text>
+                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'pago_movil' ? null : 'pago_movil')}>
+                  <Ionicons name={editingPayment === 'pago_movil' ? 'close' : 'create'} size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              {editingPayment === 'pago_movil' ? (
+                <View>
+                  <TextInput style={styles.input} placeholder="Banco" value={pagoMovilData.bank} onChangeText={(t) => setPagoMovilData({...pagoMovilData, bank: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Teléfono" value={pagoMovilData.phone} onChangeText={(t) => setPagoMovilData({...pagoMovilData, phone: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Cédula/RIF" value={pagoMovilData.id} onChangeText={(t) => setPagoMovilData({...pagoMovilData, id: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Nombre" value={pagoMovilData.name} onChangeText={(t) => setPagoMovilData({...pagoMovilData, name: t})} placeholderTextColor="#999" />
+                </View>
+              ) : (
+                <View style={styles.paymentDetails}>
+                  <Text style={styles.paymentDetailText}>Banco: {pagoMovilData.bank || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Teléfono: {pagoMovilData.phone || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Cédula: {pagoMovilData.id || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Nombre: {pagoMovilData.name || 'No configurado'}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Transferencia Bancaria */}
+            <View style={styles.paymentCard}>
+              <View style={styles.paymentHeader}>
+                <Ionicons name="business" size={24} color="#FF5000" />
+                <Text style={styles.paymentTitle}>Transferencia Bancaria</Text>
+                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'transferencia' ? null : 'transferencia')}>
+                  <Ionicons name={editingPayment === 'transferencia' ? 'close' : 'create'} size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              {editingPayment === 'transferencia' ? (
+                <View>
+                  <TextInput style={styles.input} placeholder="Banco" value={transferenciaData.bank} onChangeText={(t) => setTransferenciaData({...transferenciaData, bank: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Tipo de Cuenta" value={transferenciaData.account_type} onChangeText={(t) => setTransferenciaData({...transferenciaData, account_type: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Número de Cuenta" value={transferenciaData.account_number} onChangeText={(t) => setTransferenciaData({...transferenciaData, account_number: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="RIF" value={transferenciaData.id} onChangeText={(t) => setTransferenciaData({...transferenciaData, id: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Nombre" value={transferenciaData.name} onChangeText={(t) => setTransferenciaData({...transferenciaData, name: t})} placeholderTextColor="#999" />
+                </View>
+              ) : (
+                <View style={styles.paymentDetails}>
+                  <Text style={styles.paymentDetailText}>Banco: {transferenciaData.bank || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Tipo: {transferenciaData.account_type || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Cuenta: {transferenciaData.account_number || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>RIF: {transferenciaData.id || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>Nombre: {transferenciaData.name || 'No configurado'}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Binance */}
+            <View style={styles.paymentCard}>
+              <View style={styles.paymentHeader}>
+                <Ionicons name="logo-bitcoin" size={24} color="#F0B90B" />
+                <Text style={styles.paymentTitle}>Binance Pay</Text>
+                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'binance' ? null : 'binance')}>
+                  <Ionicons name={editingPayment === 'binance' ? 'close' : 'create'} size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              {editingPayment === 'binance' ? (
+                <View>
+                  <TextInput style={styles.input} placeholder="Email Binance" value={binanceData.email} onChangeText={(t) => setBinanceData({...binanceData, email: t})} placeholderTextColor="#999" />
+                  <TextInput style={styles.input} placeholder="Binance ID" value={binanceData.user_id} onChangeText={(t) => setBinanceData({...binanceData, user_id: t})} placeholderTextColor="#999" />
+                </View>
+              ) : (
+                <View style={styles.paymentDetails}>
+                  <Text style={styles.paymentDetailText}>Email: {binanceData.email || 'No configurado'}</Text>
+                  <Text style={styles.paymentDetailText}>ID: {binanceData.user_id || 'No configurado'}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* PayPal */}
+            <View style={styles.paymentCard}>
+              <View style={styles.paymentHeader}>
+                <Ionicons name="logo-paypal" size={24} color="#003087" />
+                <Text style={styles.paymentTitle}>PayPal</Text>
+                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'paypal' ? null : 'paypal')}>
+                  <Ionicons name={editingPayment === 'paypal' ? 'close' : 'create'} size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              {editingPayment === 'paypal' ? (
+                <View>
+                  <TextInput style={styles.input} placeholder="Email PayPal" value={paypalData.email} onChangeText={(t) => setPaypalData({...paypalData, email: t})} placeholderTextColor="#999" />
+                </View>
+              ) : (
+                <View style={styles.paymentDetails}>
+                  <Text style={styles.paymentDetailText}>Email: {paypalData.email || 'No configurado'}</Text>
+                </View>
+              )}
+            </View>
+
+            {editingPayment && (
+              <TouchableOpacity style={styles.saveButton} onPress={handleSavePaymentMethods}>
+                <Ionicons name="save" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Guardar Cambios</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Image Modal */}
@@ -518,6 +966,40 @@ export default function AdminPanel() {
                   Referencia: {selectedOrder.reference_number}
                 </Text>
               </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetPasswordModal && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => { setResetPasswordModal(null); setNewUserPassword(''); }}
+        >
+          <View style={styles.modal}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Resetear Contraseña</Text>
+                <TouchableOpacity onPress={() => { setResetPasswordModal(null); setNewUserPassword(''); }}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalSubtitle}>Usuario: {resetPasswordModal.email}</Text>
+              <TextInput
+                style={[styles.input, { marginTop: 16 }]}
+                placeholder="Nueva contraseña"
+                value={newUserPassword}
+                onChangeText={setNewUserPassword}
+                secureTextEntry
+                placeholderTextColor="#999"
+              />
+              <TouchableOpacity style={styles.saveButton} onPress={handleResetPassword}>
+                <Ionicons name="key" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Resetear Contraseña</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -559,13 +1041,14 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    paddingHorizontal: 8,
   },
   tab: {
-    flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   tabActive: {
     borderBottomWidth: 2,
@@ -809,5 +1292,195 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 16,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  // Tabs container for scrollable tabs
+  tabsContainer: {
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  // Section title
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+  },
+  // User styles
+  userCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  userHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  userAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FF5000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  userInitials: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFF',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  userEmail: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  userPhone: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 2,
+  },
+  userStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    marginBottom: 12,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  statText: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 4,
+  },
+  userActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  userActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  userActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  // Banner styles
+  addBannerCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  bannerCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  bannerPreview: {
+    width: '100%',
+    height: 120,
+  },
+  bannerInfo: {
+    padding: 12,
+  },
+  bannerOrder: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  bannerLink: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  deleteBannerBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  // Payment method styles
+  paymentCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  paymentTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginLeft: 12,
+  },
+  paymentDetails: {
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  paymentDetailText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 6,
   },
 });
