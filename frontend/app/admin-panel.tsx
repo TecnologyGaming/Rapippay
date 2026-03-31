@@ -58,9 +58,24 @@ interface Banner {
   is_active: boolean;
 }
 
+interface SocialNetwork {
+  id: string;
+  platform: string;
+  url: string;
+  is_active: boolean;
+}
+
+interface PaymentMethod {
+  id: string;
+  name: string;
+  logo_base64?: string;
+  fields: Record<string, string>;
+  is_active: boolean;
+}
+
 export default function AdminPanel() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password' | 'users' | 'banners' | 'payments'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password' | 'users' | 'banners' | 'payments' | 'branding' | 'contact'>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [exchangeRate, setExchangeRate] = useState('');
   const [commission, setCommission] = useState('');
@@ -85,14 +100,23 @@ export default function AdminPanel() {
   const [bannersLoading, setBannersLoading] = useState(false);
   const [newBannerLink, setNewBannerLink] = useState('');
   
-  // Payment methods states
-  const [bankDetails, setBankDetails] = useState<any>(null);
-  const [paymentsLoading, setPaymentsLoading] = useState(false);
-  const [editingPayment, setEditingPayment] = useState<string | null>(null);
-  const [pagoMovilData, setPagoMovilData] = useState({ bank: '', phone: '', id: '', name: '' });
-  const [transferenciaData, setTransferenciaData] = useState({ bank: '', account_type: '', account_number: '', id: '', name: '' });
-  const [binanceData, setBinanceData] = useState({ email: '', user_id: '' });
-  const [paypalData, setPaypalData] = useState({ email: '' });
+  // Branding states
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
+  const [faviconBase64, setFaviconBase64] = useState<string | null>(null);
+  
+  // Contact states
+  const [contactInfo, setContactInfo] = useState({ phone: '', email: '', whatsapp: '' });
+  const [socialNetworks, setSocialNetworks] = useState<SocialNetwork[]>([]);
+  const [newSocialPlatform, setNewSocialPlatform] = useState('instagram');
+  const [newSocialUrl, setNewSocialUrl] = useState('');
+  
+  // Payment methods states (NEW DYNAMIC)
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
+  const [newPaymentName, setNewPaymentName] = useState('');
+  const [newPaymentFields, setNewPaymentFields] = useState<{key: string, value: string}[]>([{key: '', value: ''}]);
+  const [newPaymentLogo, setNewPaymentLogo] = useState<string | null>(null);
 
   useEffect(() => {
     checkSession();
@@ -124,21 +148,31 @@ export default function AdminPanel() {
   const loadData = async () => {
     try {
       const [ordersRes, configRes] = await Promise.all([
-        axios.get(`${BACKEND_URL}/api/admin/orders`, { headers: ADMIN_HEADERS }),
+        axios.get(`${BACKEND_URL}/api/admin/orders`, { headers: ADMIN_HEADERS }).catch(() => ({ data: [] })),
         axios.get(`${BACKEND_URL}/api/config`),
       ]);
 
-      setOrders(ordersRes.data);
+      setOrders(ordersRes.data || []);
       setExchangeRate(configRes.data.exchange_rate.toString());
       setCommission(configRes.data.commission_percent.toString());
       
-      // Store bank details for payment methods tab
-      if (configRes.data.bank_details) {
-        setBankDetails(configRes.data.bank_details);
-        setPagoMovilData(configRes.data.bank_details.pago_movil || { bank: '', phone: '', id: '', name: '' });
-        setTransferenciaData(configRes.data.bank_details.transferencia || { bank: '', account_type: '', account_number: '', id: '', name: '' });
-        setBinanceData(configRes.data.bank_details.binance_pay || { email: '', user_id: '' });
-        setPaypalData(configRes.data.bank_details.paypal || { email: '' });
+      // Branding
+      setLogoBase64(configRes.data.logo_base64 || null);
+      setFaviconBase64(configRes.data.favicon_base64 || null);
+      
+      // Contact info
+      if (configRes.data.contact_info) {
+        setContactInfo(configRes.data.contact_info);
+      }
+      
+      // Social networks
+      if (configRes.data.social_networks) {
+        setSocialNetworks(configRes.data.social_networks);
+      }
+      
+      // Payment methods (NEW)
+      if (configRes.data.payment_methods) {
+        setPaymentMethods(configRes.data.payment_methods);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -268,25 +302,217 @@ export default function AdminPanel() {
   // Save payment methods
   const handleSavePaymentMethods = async () => {
     try {
-      const updatedBankDetails = {
-        pago_movil: pagoMovilData,
-        transferencia: transferenciaData,
-        binance_pay: binanceData,
-        paypal: paypalData,
-      };
-
-      await axios.patch(
-        `${BACKEND_URL}/api/admin/config`,
-        { bank_details: updatedBankDetails },
+      await axios.put(
+        `${BACKEND_URL}/api/admin/payment-methods`,
+        paymentMethods,
         { headers: ADMIN_HEADERS }
       );
-      
-      setBankDetails(updatedBankDetails);
-      setEditingPayment(null);
+      setEditingPaymentId(null);
       Alert.alert('Éxito', 'Métodos de pago actualizados correctamente');
     } catch (error) {
       Alert.alert('Error', 'No se pudieron guardar los cambios');
     }
+  };
+
+  // Toggle payment method active status
+  const handleTogglePaymentMethod = async (methodId: string) => {
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/payment-methods/${methodId}/toggle`,
+        {},
+        { headers: ADMIN_HEADERS }
+      );
+      // Update local state
+      setPaymentMethods(prev => prev.map(m => 
+        m.id === methodId ? { ...m, is_active: !m.is_active } : m
+      ));
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cambiar el estado');
+    }
+  };
+
+  // Add new payment method
+  const handleAddPaymentMethod = async () => {
+    if (!newPaymentName.trim()) {
+      Alert.alert('Error', 'Ingresa el nombre del método de pago');
+      return;
+    }
+
+    const fields: Record<string, string> = {};
+    newPaymentFields.forEach(f => {
+      if (f.key.trim()) fields[f.key] = f.value;
+    });
+
+    const newMethod: PaymentMethod = {
+      id: `pm_${Date.now()}`,
+      name: newPaymentName,
+      logo_base64: newPaymentLogo,
+      fields,
+      is_active: true
+    };
+
+    const updatedMethods = [...paymentMethods, newMethod];
+    
+    try {
+      await axios.put(
+        `${BACKEND_URL}/api/admin/payment-methods`,
+        updatedMethods,
+        { headers: ADMIN_HEADERS }
+      );
+      setPaymentMethods(updatedMethods);
+      setShowAddPaymentModal(false);
+      setNewPaymentName('');
+      setNewPaymentFields([{key: '', value: ''}]);
+      setNewPaymentLogo(null);
+      Alert.alert('Éxito', 'Método de pago agregado');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo agregar el método');
+    }
+  };
+
+  // Delete payment method
+  const handleDeletePaymentMethod = (methodId: string) => {
+    Alert.alert(
+      'Eliminar Método',
+      '¿Estás seguro de eliminar este método de pago?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            const updatedMethods = paymentMethods.filter(m => m.id !== methodId);
+            try {
+              await axios.put(
+                `${BACKEND_URL}/api/admin/payment-methods`,
+                updatedMethods,
+                { headers: ADMIN_HEADERS }
+              );
+              setPaymentMethods(updatedMethods);
+              Alert.alert('Éxito', 'Método eliminado');
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo eliminar');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Pick payment method logo
+  const handlePickPaymentLogo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setNewPaymentLogo(`data:image/jpeg;base64,${result.assets[0].base64}`);
+    }
+  };
+
+  // Update branding (logo/favicon)
+  const handleUpdateBranding = async (type: 'logo' | 'favicon') => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: type === 'logo' ? [4, 1] : [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      const base64Image = `data:image/png;base64,${result.assets[0].base64}`;
+      try {
+        await axios.patch(
+          `${BACKEND_URL}/api/admin/branding`,
+          type === 'logo' ? { logo_base64: base64Image } : { favicon_base64: base64Image },
+          { headers: ADMIN_HEADERS }
+        );
+        if (type === 'logo') setLogoBase64(base64Image);
+        else setFaviconBase64(base64Image);
+        Alert.alert('Éxito', `${type === 'logo' ? 'Logo' : 'Favicon'} actualizado`);
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo actualizar');
+      }
+    }
+  };
+
+  // Save contact info
+  const handleSaveContactInfo = async () => {
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/contact`,
+        contactInfo,
+        { headers: ADMIN_HEADERS }
+      );
+      Alert.alert('Éxito', 'Información de contacto actualizada');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo guardar');
+    }
+  };
+
+  // Add social network
+  const handleAddSocialNetwork = async () => {
+    if (!newSocialUrl.trim()) {
+      Alert.alert('Error', 'Ingresa la URL de la red social');
+      return;
+    }
+
+    const newNetwork: SocialNetwork = {
+      id: `sn_${Date.now()}`,
+      platform: newSocialPlatform,
+      url: newSocialUrl,
+      is_active: true
+    };
+
+    const updatedNetworks = [...socialNetworks, newNetwork];
+    
+    try {
+      await axios.put(
+        `${BACKEND_URL}/api/admin/social-networks`,
+        updatedNetworks,
+        { headers: ADMIN_HEADERS }
+      );
+      setSocialNetworks(updatedNetworks);
+      setNewSocialUrl('');
+      Alert.alert('Éxito', 'Red social agregada');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo agregar');
+    }
+  };
+
+  // Delete social network
+  const handleDeleteSocialNetwork = async (networkId: string) => {
+    const updatedNetworks = socialNetworks.filter(n => n.id !== networkId);
+    try {
+      await axios.put(
+        `${BACKEND_URL}/api/admin/social-networks`,
+        updatedNetworks,
+        { headers: ADMIN_HEADERS }
+      );
+      setSocialNetworks(updatedNetworks);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo eliminar');
+    }
+  };
+
+  // Get social icon
+  const getSocialIcon = (platform: string) => {
+    const icons: Record<string, string> = {
+      instagram: 'logo-instagram',
+      facebook: 'logo-facebook',
+      twitter: 'logo-twitter',
+      tiktok: 'logo-tiktok',
+      youtube: 'logo-youtube',
+      whatsapp: 'logo-whatsapp',
+      linkedin: 'logo-linkedin',
+      telegram: 'paper-plane',
+    };
+    return icons[platform] || 'link';
   };
 
   const onRefresh = async () => {
@@ -429,7 +655,7 @@ export default function AdminPanel() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs - Now scrollable with 6 tabs */}
+      {/* Tabs - Now scrollable with 8 tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer}>
         <View style={styles.tabs}>
           <TouchableOpacity
@@ -466,6 +692,24 @@ export default function AdminPanel() {
             <Ionicons name="card" size={18} color={activeTab === 'payments' ? '#FF5000' : '#666'} />
             <Text style={[styles.tabText, activeTab === 'payments' && styles.tabTextActive]}>
               Pagos
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'branding' && styles.tabActive]}
+            onPress={() => setActiveTab('branding')}
+          >
+            <Ionicons name="color-palette" size={18} color={activeTab === 'branding' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'branding' && styles.tabTextActive]}>
+              Marca
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'contact' && styles.tabActive]}
+            onPress={() => setActiveTab('contact')}
+          >
+            <Ionicons name="call" size={18} color={activeTab === 'contact' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'contact' && styles.tabTextActive]}>
+              Contacto
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -829,113 +1073,227 @@ export default function AdminPanel() {
           </View>
         )}
 
-        {/* ===== PAYMENT METHODS TAB ===== */}
+        {/* ===== PAYMENT METHODS TAB (DYNAMIC) ===== */}
         {activeTab === 'payments' && (
           <View>
-            <Text style={styles.sectionTitle}>Métodos de Pago</Text>
-
-            {/* Pago Móvil */}
-            <View style={styles.paymentCard}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="phone-portrait" size={24} color="#FF5000" />
-                <Text style={styles.paymentTitle}>Pago Móvil</Text>
-                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'pago_movil' ? null : 'pago_movil')}>
-                  <Ionicons name={editingPayment === 'pago_movil' ? 'close' : 'create'} size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              {editingPayment === 'pago_movil' ? (
-                <View>
-                  <TextInput style={styles.input} placeholder="Banco" value={pagoMovilData.bank} onChangeText={(t) => setPagoMovilData({...pagoMovilData, bank: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Teléfono" value={pagoMovilData.phone} onChangeText={(t) => setPagoMovilData({...pagoMovilData, phone: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Cédula/RIF" value={pagoMovilData.id} onChangeText={(t) => setPagoMovilData({...pagoMovilData, id: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Nombre" value={pagoMovilData.name} onChangeText={(t) => setPagoMovilData({...pagoMovilData, name: t})} placeholderTextColor="#999" />
-                </View>
-              ) : (
-                <View style={styles.paymentDetails}>
-                  <Text style={styles.paymentDetailText}>Banco: {pagoMovilData.bank || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Teléfono: {pagoMovilData.phone || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Cédula: {pagoMovilData.id || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Nombre: {pagoMovilData.name || 'No configurado'}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Transferencia Bancaria */}
-            <View style={styles.paymentCard}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="business" size={24} color="#FF5000" />
-                <Text style={styles.paymentTitle}>Transferencia Bancaria</Text>
-                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'transferencia' ? null : 'transferencia')}>
-                  <Ionicons name={editingPayment === 'transferencia' ? 'close' : 'create'} size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              {editingPayment === 'transferencia' ? (
-                <View>
-                  <TextInput style={styles.input} placeholder="Banco" value={transferenciaData.bank} onChangeText={(t) => setTransferenciaData({...transferenciaData, bank: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Tipo de Cuenta" value={transferenciaData.account_type} onChangeText={(t) => setTransferenciaData({...transferenciaData, account_type: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Número de Cuenta" value={transferenciaData.account_number} onChangeText={(t) => setTransferenciaData({...transferenciaData, account_number: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="RIF" value={transferenciaData.id} onChangeText={(t) => setTransferenciaData({...transferenciaData, id: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Nombre" value={transferenciaData.name} onChangeText={(t) => setTransferenciaData({...transferenciaData, name: t})} placeholderTextColor="#999" />
-                </View>
-              ) : (
-                <View style={styles.paymentDetails}>
-                  <Text style={styles.paymentDetailText}>Banco: {transferenciaData.bank || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Tipo: {transferenciaData.account_type || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Cuenta: {transferenciaData.account_number || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>RIF: {transferenciaData.id || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>Nombre: {transferenciaData.name || 'No configurado'}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Binance */}
-            <View style={styles.paymentCard}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="logo-bitcoin" size={24} color="#F0B90B" />
-                <Text style={styles.paymentTitle}>Binance Pay</Text>
-                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'binance' ? null : 'binance')}>
-                  <Ionicons name={editingPayment === 'binance' ? 'close' : 'create'} size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              {editingPayment === 'binance' ? (
-                <View>
-                  <TextInput style={styles.input} placeholder="Email Binance" value={binanceData.email} onChangeText={(t) => setBinanceData({...binanceData, email: t})} placeholderTextColor="#999" />
-                  <TextInput style={styles.input} placeholder="Binance ID" value={binanceData.user_id} onChangeText={(t) => setBinanceData({...binanceData, user_id: t})} placeholderTextColor="#999" />
-                </View>
-              ) : (
-                <View style={styles.paymentDetails}>
-                  <Text style={styles.paymentDetailText}>Email: {binanceData.email || 'No configurado'}</Text>
-                  <Text style={styles.paymentDetailText}>ID: {binanceData.user_id || 'No configurado'}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* PayPal */}
-            <View style={styles.paymentCard}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="logo-paypal" size={24} color="#003087" />
-                <Text style={styles.paymentTitle}>PayPal</Text>
-                <TouchableOpacity onPress={() => setEditingPayment(editingPayment === 'paypal' ? null : 'paypal')}>
-                  <Ionicons name={editingPayment === 'paypal' ? 'close' : 'create'} size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              {editingPayment === 'paypal' ? (
-                <View>
-                  <TextInput style={styles.input} placeholder="Email PayPal" value={paypalData.email} onChangeText={(t) => setPaypalData({...paypalData, email: t})} placeholderTextColor="#999" />
-                </View>
-              ) : (
-                <View style={styles.paymentDetails}>
-                  <Text style={styles.paymentDetailText}>Email: {paypalData.email || 'No configurado'}</Text>
-                </View>
-              )}
-            </View>
-
-            {editingPayment && (
-              <TouchableOpacity style={styles.saveButton} onPress={handleSavePaymentMethods}>
-                <Ionicons name="save" size={24} color="#FFF" />
-                <Text style={styles.saveButtonText}>Guardar Cambios</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Métodos de Pago</Text>
+              <TouchableOpacity 
+                style={styles.addButton} 
+                onPress={() => setShowAddPaymentModal(true)}
+              >
+                <Ionicons name="add-circle" size={24} color="#FF5000" />
+                <Text style={styles.addButtonText}>Agregar</Text>
               </TouchableOpacity>
+            </View>
+
+            {paymentMethods.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="card-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>No hay métodos de pago</Text>
+              </View>
+            ) : (
+              paymentMethods.map((method) => (
+                <View key={method.id} style={[styles.paymentCard, !method.is_active && { opacity: 0.6 }]}>
+                  <View style={styles.paymentHeader}>
+                    {method.logo_base64 ? (
+                      <Image source={{ uri: method.logo_base64 }} style={styles.paymentLogo} />
+                    ) : (
+                      <Ionicons name="card" size={24} color="#FF5000" />
+                    )}
+                    <Text style={styles.paymentTitle}>{method.name}</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity onPress={() => handleTogglePaymentMethod(method.id)}>
+                        <Ionicons 
+                          name={method.is_active ? 'eye' : 'eye-off'} 
+                          size={22} 
+                          color={method.is_active ? '#4CAF50' : '#999'} 
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingPaymentId(editingPaymentId === method.id ? null : method.id)}>
+                        <Ionicons name={editingPaymentId === method.id ? 'close' : 'create'} size={22} color="#666" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDeletePaymentMethod(method.id)}>
+                        <Ionicons name="trash" size={22} color="#F44336" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  
+                  {editingPaymentId === method.id ? (
+                    <View style={styles.paymentDetails}>
+                      {Object.entries(method.fields).map(([key, value]) => (
+                        <TextInput
+                          key={key}
+                          style={styles.input}
+                          placeholder={key}
+                          value={value}
+                          onChangeText={(text) => {
+                            setPaymentMethods(prev => prev.map(m => 
+                              m.id === method.id 
+                                ? { ...m, fields: { ...m.fields, [key]: text } }
+                                : m
+                            ));
+                          }}
+                          placeholderTextColor="#999"
+                        />
+                      ))}
+                      <TouchableOpacity style={styles.saveButton} onPress={handleSavePaymentMethods}>
+                        <Ionicons name="save" size={20} color="#FFF" />
+                        <Text style={styles.saveButtonText}>Guardar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.paymentDetails}>
+                      {Object.entries(method.fields).map(([key, value]) => (
+                        <Text key={key} style={styles.paymentDetailText}>
+                          {key}: {value || 'No configurado'}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))
             )}
+          </View>
+        )}
+
+        {/* ===== BRANDING TAB ===== */}
+        {activeTab === 'branding' && (
+          <View>
+            <Text style={styles.sectionTitle}>Marca y Diseño</Text>
+            
+            {/* Logo */}
+            <View style={styles.brandingCard}>
+              <Text style={styles.configTitle}>Logo de la App</Text>
+              <Text style={styles.configDescription}>Se mostrará en el header y login</Text>
+              {logoBase64 ? (
+                <Image source={{ uri: logoBase64 }} style={styles.logoPreview} resizeMode="contain" />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Ionicons name="image-outline" size={48} color="#CCC" />
+                  <Text style={styles.placeholderText}>Sin logo</Text>
+                </View>
+              )}
+              <TouchableOpacity style={styles.saveButton} onPress={() => handleUpdateBranding('logo')}>
+                <Ionicons name="cloud-upload" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Cambiar Logo</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Favicon */}
+            <View style={styles.brandingCard}>
+              <Text style={styles.configTitle}>Favicon</Text>
+              <Text style={styles.configDescription}>Ícono que se muestra en el navegador</Text>
+              {faviconBase64 ? (
+                <Image source={{ uri: faviconBase64 }} style={styles.faviconPreview} resizeMode="contain" />
+              ) : (
+                <View style={styles.faviconPlaceholder}>
+                  <Ionicons name="image-outline" size={32} color="#CCC" />
+                </View>
+              )}
+              <TouchableOpacity style={styles.saveButton} onPress={() => handleUpdateBranding('favicon')}>
+                <Ionicons name="cloud-upload" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Cambiar Favicon</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* ===== CONTACT TAB ===== */}
+        {activeTab === 'contact' && (
+          <View>
+            <Text style={styles.sectionTitle}>Información de Contacto</Text>
+            
+            {/* Contact Info */}
+            <View style={styles.contactCard}>
+              <Text style={styles.configTitle}>Datos de Contacto</Text>
+              
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Teléfono:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="+58 412-1234567"
+                  value={contactInfo.phone}
+                  onChangeText={(t) => setContactInfo({...contactInfo, phone: t})}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Correo Electrónico:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="contacto@ejemplo.com"
+                  value={contactInfo.email}
+                  onChangeText={(t) => setContactInfo({...contactInfo, email: t})}
+                  keyboardType="email-address"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>WhatsApp:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="+58 412-1234567"
+                  value={contactInfo.whatsapp}
+                  onChangeText={(t) => setContactInfo({...contactInfo, whatsapp: t})}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <TouchableOpacity style={styles.saveButton} onPress={handleSaveContactInfo}>
+                <Ionicons name="save" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Guardar Contacto</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Social Networks */}
+            <View style={styles.contactCard}>
+              <Text style={styles.configTitle}>Redes Sociales</Text>
+              
+              {/* Add new social */}
+              <View style={styles.addSocialRow}>
+                <View style={styles.socialPickerContainer}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {['instagram', 'facebook', 'twitter', 'tiktok', 'youtube', 'whatsapp', 'telegram'].map(platform => (
+                      <TouchableOpacity
+                        key={platform}
+                        style={[styles.socialPickerItem, newSocialPlatform === platform && styles.socialPickerItemActive]}
+                        onPress={() => setNewSocialPlatform(platform)}
+                      >
+                        <Ionicons name={getSocialIcon(platform) as any} size={20} color={newSocialPlatform === platform ? '#FF5000' : '#666'} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="https://instagram.com/tu_usuario"
+                  value={newSocialUrl}
+                  onChangeText={setNewSocialUrl}
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity style={styles.addSocialBtn} onPress={handleAddSocialNetwork}>
+                  <Ionicons name="add" size={24} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+
+              {/* List of social networks */}
+              {socialNetworks.map(network => (
+                <View key={network.id} style={styles.socialItem}>
+                  <Ionicons name={getSocialIcon(network.platform) as any} size={24} color="#FF5000" />
+                  <Text style={styles.socialUrl} numberOfLines={1}>{network.url}</Text>
+                  <TouchableOpacity onPress={() => handleDeleteSocialNetwork(network.id)}>
+                    <Ionicons name="trash" size={20} color="#F44336" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {socialNetworks.length === 0 && (
+                <Text style={styles.noSocialText}>No hay redes sociales configuradas</Text>
+              )}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -999,6 +1357,102 @@ export default function AdminPanel() {
               <TouchableOpacity style={styles.saveButton} onPress={handleResetPassword}>
                 <Ionicons name="key" size={24} color="#FFF" />
                 <Text style={styles.saveButtonText}>Resetear Contraseña</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Add Payment Method Modal */}
+      {showAddPaymentModal && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowAddPaymentModal(false)}
+        >
+          <View style={styles.modal}>
+            <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Agregar Método de Pago</Text>
+                <TouchableOpacity onPress={() => { setShowAddPaymentModal(false); setNewPaymentName(''); setNewPaymentFields([{key: '', value: ''}]); setNewPaymentLogo(null); }}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={{ maxHeight: 400 }}>
+                {/* Logo */}
+                <TouchableOpacity style={styles.logoPickerBtn} onPress={handlePickPaymentLogo}>
+                  {newPaymentLogo ? (
+                    <Image source={{ uri: newPaymentLogo }} style={styles.newPaymentLogo} />
+                  ) : (
+                    <>
+                      <Ionicons name="image" size={32} color="#999" />
+                      <Text style={styles.logoPickerText}>Agregar Logo</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Name */}
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nombre del método (ej: Zelle, Nequi)"
+                  value={newPaymentName}
+                  onChangeText={setNewPaymentName}
+                  placeholderTextColor="#999"
+                />
+
+                {/* Dynamic Fields */}
+                <Text style={styles.inputLabel}>Campos de información:</Text>
+                {newPaymentFields.map((field, index) => (
+                  <View key={index} style={styles.fieldRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                      placeholder="Nombre del campo"
+                      value={field.key}
+                      onChangeText={(text) => {
+                        const updated = [...newPaymentFields];
+                        updated[index].key = text;
+                        setNewPaymentFields(updated);
+                      }}
+                      placeholderTextColor="#999"
+                    />
+                    <TextInput
+                      style={[styles.input, { flex: 1, marginBottom: 0, marginLeft: 8 }]}
+                      placeholder="Valor"
+                      value={field.value}
+                      onChangeText={(text) => {
+                        const updated = [...newPaymentFields];
+                        updated[index].value = text;
+                        setNewPaymentFields(updated);
+                      }}
+                      placeholderTextColor="#999"
+                    />
+                    <TouchableOpacity 
+                      style={styles.removeFieldBtn}
+                      onPress={() => {
+                        if (newPaymentFields.length > 1) {
+                          setNewPaymentFields(newPaymentFields.filter((_, i) => i !== index));
+                        }
+                      }}
+                    >
+                      <Ionicons name="remove-circle" size={24} color="#F44336" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                <TouchableOpacity 
+                  style={styles.addFieldBtn}
+                  onPress={() => setNewPaymentFields([...newPaymentFields, {key: '', value: ''}])}
+                >
+                  <Ionicons name="add-circle" size={20} color="#FF5000" />
+                  <Text style={styles.addFieldText}>Agregar Campo</Text>
+                </TouchableOpacity>
+              </ScrollView>
+
+              <TouchableOpacity style={styles.saveButton} onPress={handleAddPaymentMethod}>
+                <Ionicons name="add-circle" size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>Crear Método de Pago</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1482,5 +1936,176 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 6,
+  },
+  // Additional styles for new features
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF5000',
+  },
+  paymentLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+  },
+  // Branding styles
+  brandingCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  logoPreview: {
+    width: 200,
+    height: 60,
+    marginVertical: 16,
+  },
+  logoPlaceholder: {
+    width: 200,
+    height: 80,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 16,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#DDD',
+  },
+  placeholderText: {
+    color: '#999',
+    marginTop: 8,
+  },
+  faviconPreview: {
+    width: 64,
+    height: 64,
+    marginVertical: 16,
+  },
+  faviconPlaceholder: {
+    width: 64,
+    height: 64,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 16,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#DDD',
+  },
+  // Contact styles
+  contactCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  addSocialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  socialPickerContainer: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 4,
+  },
+  socialPickerItem: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  socialPickerItemActive: {
+    backgroundColor: '#FFF3E0',
+  },
+  addSocialBtn: {
+    backgroundColor: '#FF5000',
+    borderRadius: 8,
+    padding: 10,
+  },
+  socialItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  socialUrl: {
+    flex: 1,
+    fontSize: 14,
+    color: '#666',
+  },
+  noSocialText: {
+    textAlign: 'center',
+    color: '#999',
+    marginTop: 16,
+  },
+  // Add payment modal styles
+  logoPickerBtn: {
+    width: '100%',
+    height: 80,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#DDD',
+  },
+  logoPickerText: {
+    color: '#999',
+    marginTop: 4,
+  },
+  newPaymentLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  removeFieldBtn: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  addFieldBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  addFieldText: {
+    color: '#FF5000',
+    marginLeft: 4,
+    fontWeight: '600',
   },
 });

@@ -188,6 +188,9 @@ class SystemConfigResponse(BaseModel):
     bank_details: dict
     logo_base64: Optional[str] = None
     favicon_base64: Optional[str] = None
+    contact_info: Optional[dict] = None
+    social_networks: Optional[List[dict]] = None
+    payment_methods: Optional[List[dict]] = None
 
 class SystemConfigUpdate(BaseModel):
     exchange_rate: Optional[float] = None
@@ -197,6 +200,24 @@ class SystemConfigUpdate(BaseModel):
 class BrandingUpdate(BaseModel):
     logo_base64: Optional[str] = None
     favicon_base64: Optional[str] = None
+
+class ContactInfoUpdate(BaseModel):
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    whatsapp: Optional[str] = None
+
+class SocialNetworkItem(BaseModel):
+    id: Optional[str] = None
+    platform: str  # instagram, facebook, twitter, tiktok, youtube, etc.
+    url: str
+    is_active: bool = True
+
+class PaymentMethodItem(BaseModel):
+    id: Optional[str] = None
+    name: str
+    logo_base64: Optional[str] = None
+    fields: dict  # Dynamic fields like {bank: "", account: "", email: ""}
+    is_active: bool = True
 
 # ===== INITIALIZE DEFAULT DATA =====
 
@@ -229,6 +250,22 @@ async def init_system_config():
                     "email": "payments@zinli-recargas.com"
                 }
             },
+            "contact_info": {
+                "phone": "+58 412-1234567",
+                "email": "contacto@zinli-recargas.com",
+                "whatsapp": "+58 412-1234567"
+            },
+            "social_networks": [
+                {"id": "1", "platform": "instagram", "url": "https://instagram.com/zinlirecargas", "is_active": True},
+                {"id": "2", "platform": "facebook", "url": "https://facebook.com/zinlirecargas", "is_active": True},
+                {"id": "3", "platform": "twitter", "url": "https://twitter.com/zinlirecargas", "is_active": True}
+            ],
+            "payment_methods": [
+                {"id": "pm_1", "name": "Pago Móvil", "logo_base64": None, "fields": {"bank": "Banco de Venezuela", "phone": "0414-1234567", "id": "V-12345678", "name": "Zinli Recargas"}, "is_active": True},
+                {"id": "pm_2", "name": "Transferencia Bancaria", "logo_base64": None, "fields": {"bank": "Mercantil", "account_type": "Corriente", "account_number": "0105-0123-45-1234567890", "id": "J-12345678-9", "name": "Zinli Recargas"}, "is_active": True},
+                {"id": "pm_3", "name": "Binance Pay", "logo_base64": None, "fields": {"email": "zinli@gmail.com", "user_id": "123456789"}, "is_active": True},
+                {"id": "pm_4", "name": "PayPal", "logo_base64": None, "fields": {"email": "payments@zinli.com"}, "is_active": True}
+            ],
             "created_at": datetime.utcnow()
         }
         await db.system_config.insert_one(default_config)
@@ -811,7 +848,10 @@ async def get_system_config():
         commission_percent=config["commission_percent"],
         bank_details=config["bank_details"],
         logo_base64=config.get("logo_base64"),
-        favicon_base64=config.get("favicon_base64")
+        favicon_base64=config.get("favicon_base64"),
+        contact_info=config.get("contact_info"),
+        social_networks=config.get("social_networks", []),
+        payment_methods=config.get("payment_methods", [])
     )
 
 @api_router.patch("/admin/config", response_model=SystemConfigResponse)
@@ -841,7 +881,10 @@ async def update_system_config(config_data: SystemConfigUpdate, verified: bool =
         commission_percent=config["commission_percent"],
         bank_details=config["bank_details"],
         logo_base64=config.get("logo_base64"),
-        favicon_base64=config.get("favicon_base64")
+        favicon_base64=config.get("favicon_base64"),
+        contact_info=config.get("contact_info"),
+        social_networks=config.get("social_networks", []),
+        payment_methods=config.get("payment_methods", [])
     )
 
 @api_router.patch("/admin/branding", response_model=SystemConfigResponse)
@@ -868,8 +911,84 @@ async def update_branding(branding_data: BrandingUpdate, verified: bool = Depend
         commission_percent=config["commission_percent"],
         bank_details=config["bank_details"],
         logo_base64=config.get("logo_base64"),
-        favicon_base64=config.get("favicon_base64")
+        favicon_base64=config.get("favicon_base64"),
+        contact_info=config.get("contact_info"),
+        social_networks=config.get("social_networks", []),
+        payment_methods=config.get("payment_methods", [])
     )
+
+@api_router.patch("/admin/contact")
+async def update_contact_info(contact_data: ContactInfoUpdate, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update contact information"""
+    update_dict = {}
+    
+    if contact_data.phone is not None:
+        update_dict["contact_info.phone"] = contact_data.phone
+    if contact_data.email is not None:
+        update_dict["contact_info.email"] = contact_data.email
+    if contact_data.whatsapp is not None:
+        update_dict["contact_info.whatsapp"] = contact_data.whatsapp
+    
+    if update_dict:
+        await db.system_config.update_one(
+            {"key": "app_config"},
+            {"$set": update_dict}
+        )
+    
+    config = await db.system_config.find_one({"key": "app_config"})
+    return {"message": "Contact info updated", "contact_info": config.get("contact_info")}
+
+@api_router.put("/admin/social-networks")
+async def update_social_networks(networks: List[SocialNetworkItem], verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update social networks list"""
+    networks_data = [n.dict() for n in networks]
+    
+    # Generate IDs for new items
+    for i, network in enumerate(networks_data):
+        if not network.get("id"):
+            networks_data[i]["id"] = str(uuid.uuid4())[:8]
+    
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": {"social_networks": networks_data}}
+    )
+    
+    return {"message": "Social networks updated", "social_networks": networks_data}
+
+@api_router.put("/admin/payment-methods")
+async def update_payment_methods(methods: List[PaymentMethodItem], verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update payment methods list"""
+    methods_data = [m.dict() for m in methods]
+    
+    # Generate IDs for new items
+    for i, method in enumerate(methods_data):
+        if not method.get("id"):
+            methods_data[i]["id"] = f"pm_{str(uuid.uuid4())[:8]}"
+    
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": {"payment_methods": methods_data}}
+    )
+    
+    return {"message": "Payment methods updated", "payment_methods": methods_data}
+
+@api_router.patch("/admin/payment-methods/{method_id}/toggle")
+async def toggle_payment_method(method_id: str, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Toggle payment method active status"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    methods = config.get("payment_methods", [])
+    
+    for i, method in enumerate(methods):
+        if method.get("id") == method_id:
+            methods[i]["is_active"] = not method.get("is_active", True)
+            break
+    
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": {"payment_methods": methods}}
+    )
+    
+    return {"message": "Payment method toggled", "payment_methods": methods}
 
 # ===== USER MANAGEMENT ROUTES (ADMIN) =====
 
