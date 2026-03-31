@@ -175,11 +175,17 @@ class SystemConfigResponse(BaseModel):
     exchange_rate: float
     commission_percent: float
     bank_details: dict
+    logo_base64: Optional[str] = None
+    favicon_base64: Optional[str] = None
 
 class SystemConfigUpdate(BaseModel):
     exchange_rate: Optional[float] = None
     commission_percent: Optional[float] = None
     bank_details: Optional[dict] = None
+
+class BrandingUpdate(BaseModel):
+    logo_base64: Optional[str] = None
+    favicon_base64: Optional[str] = None
 
 # ===== INITIALIZE DEFAULT DATA =====
 
@@ -783,7 +789,9 @@ async def get_system_config():
     return SystemConfigResponse(
         exchange_rate=config["exchange_rate"],
         commission_percent=config["commission_percent"],
-        bank_details=config["bank_details"]
+        bank_details=config["bank_details"],
+        logo_base64=config.get("logo_base64"),
+        favicon_base64=config.get("favicon_base64")
     )
 
 @api_router.patch("/admin/config", response_model=SystemConfigResponse)
@@ -811,7 +819,36 @@ async def update_system_config(config_data: SystemConfigUpdate, current_user: di
     return SystemConfigResponse(
         exchange_rate=config["exchange_rate"],
         commission_percent=config["commission_percent"],
-        bank_details=config["bank_details"]
+        bank_details=config["bank_details"],
+        logo_base64=config.get("logo_base64"),
+        favicon_base64=config.get("favicon_base64")
+    )
+
+@api_router.patch("/admin/branding", response_model=SystemConfigResponse)
+async def update_branding(branding_data: BrandingUpdate, current_user: dict = Depends(get_current_admin)):
+    """Admin: Update app branding (logo and favicon)"""
+    update_dict = {}
+    
+    if branding_data.logo_base64 is not None:
+        update_dict["logo_base64"] = branding_data.logo_base64
+    
+    if branding_data.favicon_base64 is not None:
+        update_dict["favicon_base64"] = branding_data.favicon_base64
+    
+    if update_dict:
+        await db.system_config.update_one(
+            {"key": "app_config"},
+            {"$set": update_dict}
+        )
+    
+    config = await db.system_config.find_one({"key": "app_config"})
+    
+    return SystemConfigResponse(
+        exchange_rate=config["exchange_rate"],
+        commission_percent=config["commission_percent"],
+        bank_details=config["bank_details"],
+        logo_base64=config.get("logo_base64"),
+        favicon_base64=config.get("favicon_base64")
     )
 
 # Include router
