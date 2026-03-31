@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ADMIN_USERNAME = 'admin';
-const ADMIN_PASSWORD = 'admin123';
+const DEFAULT_PASSWORD = 'admin123';
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
@@ -29,13 +29,23 @@ export default function AdminLogin() {
       return;
     }
 
-    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
-      Alert.alert('Error', 'Credenciales incorrectas');
+    if (username !== ADMIN_USERNAME) {
+      Alert.alert('Error', 'Usuario incorrecto');
       return;
     }
 
     setLoading(true);
     try {
+      // Obtener contraseña guardada o usar la por defecto
+      const savedPassword = await AsyncStorage.getItem('admin_password');
+      const correctPassword = savedPassword || DEFAULT_PASSWORD;
+
+      if (password !== correctPassword) {
+        Alert.alert('Error', 'Contraseña incorrecta');
+        setLoading(false);
+        return;
+      }
+
       // Guardar sesión de admin
       await AsyncStorage.setItem('admin_session', 'true');
       router.replace('/admin-panel');
@@ -99,15 +109,6 @@ export default function AdminLogin() {
               </>
             )}
           </TouchableOpacity>
-
-          <View style={styles.credentialsInfo}>
-            <Ionicons name="information-circle" size={20} color="#FF5000" />
-            <View style={styles.credentialsText}>
-              <Text style={styles.infoText}>Credenciales de acceso:</Text>
-              <Text style={styles.credText}>Usuario: <Text style={styles.credBold}>admin</Text></Text>
-              <Text style={styles.credText}>Contraseña: <Text style={styles.credBold}>admin123</Text></Text>
-            </View>
-          </View>
 
           <TouchableOpacity
             style={styles.backButton}
