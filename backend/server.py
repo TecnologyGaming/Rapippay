@@ -859,6 +859,68 @@ async def update_branding(branding_data: BrandingUpdate, current_user: dict = De
         favicon_base64=config.get("favicon_base64")
     )
 
+# ===== USER MANAGEMENT ROUTES (ADMIN) =====
+
+@api_router.get("/admin/users")
+async def get_all_users(current_user: dict = Depends(get_current_admin)):
+    """Admin: Get all users"""
+    users = await db.users.find().to_list(1000)
+    
+    # Get order count for each user
+    result = []
+    for user in users:
+        order_count = await db.orders.count_documents({"user_id": str(user["_id"])})
+        result.append({
+            "id": str(user["_id"]),
+            "email": user["email"],
+            "first_name": user.get("first_name", user.get("name", "N/A")),
+            "last_name": user.get("last_name", ""),
+            "phone_number": user.get("phone_number", "N/A"),
+            "is_admin": user.get("is_admin", False),
+            "is_active": user.get("is_active", True),
+            "balance": user.get("balance", 0.0),
+            "order_count": order_count,
+            "created_at": user["created_at"]
+        })
+    
+    return result
+
+@api_router.patch("/admin/users/{user_id}/toggle-status")
+async def toggle_user_status(user_id: str, current_user: dict = Depends(get_current_admin)):
+    """Admin: Activate or deactivate a user"""
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        new_status = not user.get("is_active", True)
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"is_active": new_status}}
+        )
+        
+        return {"message": f"User {'activated' if new_status else 'deactivated'} successfully", "is_active": new_status}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def reset_user_password(user_id: str, new_password: dict, current_user: dict = Depends(get_current_admin)):
+    """Admin: Reset user password"""
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        hashed_password = get_password_hash(new_password.get("password", "123456"))
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"password_hash": hashed_password}}
+        )
+        
+        return {"message": "Password reset successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # Include router
 app.include_router(api_router)
 
