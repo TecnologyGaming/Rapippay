@@ -76,7 +76,9 @@ async def get_current_admin(current_user: dict = Depends(get_current_user)):
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
-    name: str
+    first_name: str
+    last_name: str
+    phone_number: str
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -85,7 +87,9 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    name: str
+    first_name: str
+    last_name: str
+    phone_number: str
     is_admin: bool
     balance: float
     created_at: datetime
@@ -304,7 +308,9 @@ async def register(user_data: UserRegister):
     user_dict = {
         "email": user_data.email,
         "password_hash": get_password_hash(user_data.password),
-        "name": user_data.name,
+        "first_name": user_data.first_name,
+        "last_name": user_data.last_name,
+        "phone_number": user_data.phone_number,
         "is_admin": is_admin,
         "balance": 0.0,
         "created_at": datetime.utcnow()
@@ -318,7 +324,9 @@ async def register(user_data: UserRegister):
     user_response = UserResponse(
         id=str(user_dict["_id"]),
         email=user_dict["email"],
-        name=user_dict["name"],
+        first_name=user_dict["first_name"],
+        last_name=user_dict["last_name"],
+        phone_number=user_dict["phone_number"],
         is_admin=user_dict["is_admin"],
         balance=user_dict["balance"],
         created_at=user_dict["created_at"]

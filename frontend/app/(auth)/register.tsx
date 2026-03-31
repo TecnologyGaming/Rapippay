@@ -16,8 +16,10 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Register() {
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,7 +27,7 @@ export default function Register() {
   const router = useRouter();
 
   const handleRegister = async () => {
-    if (!name || !email || !password || !confirmPassword) {
+    if (!firstName || !lastName || !email || !phoneNumber || !password || !confirmPassword) {
       Alert.alert('Error', 'Por favor completa todos los campos');
       return;
     }
@@ -40,9 +42,15 @@ export default function Register() {
       return;
     }
 
+    // Validar formato de teléfono (básico)
+    if (phoneNumber.length < 10) {
+      Alert.alert('Error', 'Por favor ingresa un número de teléfono válido');
+      return;
+    }
+
     setLoading(true);
     try {
-      await register(email, password, name);
+      await register(email, password, firstName, lastName, phoneNumber);
       router.replace('/(tabs)/home');
     } catch (error: any) {
       Alert.alert('Error', error.message);
@@ -74,9 +82,20 @@ export default function Register() {
             <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder="Nombre completo"
-              value={name}
-              onChangeText={setName}
+              placeholder="Nombre *"
+              value={firstName}
+              onChangeText={setFirstName}
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Apellido *"
+              value={lastName}
+              onChangeText={setLastName}
               placeholderTextColor="#999"
             />
           </View>
@@ -85,7 +104,7 @@ export default function Register() {
             <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder="Correo electrónico"
+              placeholder="Correo electrónico *"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -95,10 +114,22 @@ export default function Register() {
           </View>
 
           <View style={styles.inputContainer}>
+            <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Número de teléfono *"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              keyboardType="phone-pad"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
             <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder="Contraseña"
+              placeholder="Contraseña *"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -110,13 +141,15 @@ export default function Register() {
             <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder="Confirmar contraseña"
+              placeholder="Confirmar contraseña *"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
               placeholderTextColor="#999"
             />
           </View>
+
+          <Text style={styles.requiredNote}>* Todos los campos son obligatorios</Text>
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
@@ -158,6 +191,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     padding: 8,
+    zIndex: 10,
   },
   header: {
     alignItems: 'center',
@@ -198,6 +232,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  requiredNote: {
+    fontSize: 12,
+    color: '#FF5000',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   button: {
     backgroundColor: '#FF5000',
