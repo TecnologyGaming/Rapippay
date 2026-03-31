@@ -37,12 +37,13 @@ export default function Home() {
   const { user, token } = useAuth();
   const router = useRouter();
   const [zinliAmount, setZinliAmount] = useState('');
+  const [zinliEmail, setZinliEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState(false);
   const [totalCost, setTotalCost] = useState(0);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [config, setConfig] = useState<SystemConfig | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -97,11 +98,22 @@ export default function Home() {
       return;
     }
 
-    setSelectedPayment(method);
+    if (!zinliEmail.trim()) {
+      Alert.alert('Error', 'Por favor ingresa el email o ID de Zinli del destinatario');
+      return;
+    }
+
+    if (!confirmEmail) {
+      Alert.alert('Error', 'Por favor confirma que el email de Zinli es correcto');
+      return;
+    }
+
     router.push({
       pathname: '/payment',
       params: {
+        orderType: 'zinli_recharge',
         zinliAmount,
+        zinliEmail,
         totalCost: totalCost.toFixed(2),
         paymentMethod: method,
       },
@@ -158,7 +170,7 @@ export default function Home() {
 
       {/* Calculator */}
       <View style={styles.calculatorCard}>
-        <Text style={styles.cardTitle}>Calculadora de Recarga</Text>
+        <Text style={styles.cardTitle}>Calculadora de Recarga Zinli</Text>
         
         {config && (
           <View style={styles.rateInfo}>
@@ -172,7 +184,7 @@ export default function Home() {
         )}
 
         <View style={styles.inputWrapper}>
-          <Text style={styles.inputLabel}>¿Cuánto deseas recibir en Zinli?</Text>
+          <Text style={styles.inputLabel}>¿Cuánto deseas recargar?</Text>
           <View style={styles.amountInputContainer}>
             <Text style={styles.currencySymbol}>$</Text>
             <TextInput
@@ -185,6 +197,34 @@ export default function Home() {
             />
           </View>
         </View>
+
+        <View style={styles.inputWrapper}>
+          <Text style={styles.inputLabel}>Email o ID de Zinli del destinatario *</Text>
+          <View style={styles.emailInputContainer}>
+            <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+            <TextInput
+              style={styles.emailInput}
+              placeholder="ejemplo@correo.com"
+              value={zinliEmail}
+              onChangeText={setZinliEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              placeholderTextColor="#CCC"
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.checkboxContainer}
+          onPress={() => setConfirmEmail(!confirmEmail)}
+        >
+          <View style={[styles.checkbox, confirmEmail && styles.checkboxChecked]}>
+            {confirmEmail && <Ionicons name="checkmark" size={18} color="#FFF" />}
+          </View>
+          <Text style={styles.checkboxLabel}>
+            Confirmo que el email/ID de Zinli es correcto
+          </Text>
+        </TouchableOpacity>
 
         {totalCost > 0 && (
           <View style={styles.totalContainer}>
@@ -322,6 +362,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 8,
+    fontWeight: '500',
   },
   amountInputContainer: {
     flexDirection: 'row',
@@ -342,6 +383,46 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+  },
+  emailInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 56,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  emailInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#DDD',
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#FF5000',
+    borderColor: '#FF5000',
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: '#666',
   },
   totalContainer: {
     flexDirection: 'row',
