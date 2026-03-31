@@ -322,26 +322,40 @@ export default function AdminPanel() {
 
   // Delete banner
   const handleDeleteBanner = async (bannerId: string) => {
-    Alert.alert(
-      'Eliminar Banner',
-      '¿Estás seguro de eliminar este banner?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await axios.delete(`${BACKEND_URL}/api/admin/banners/${bannerId}`, { headers: ADMIN_HEADERS });
-              Alert.alert('Éxito', 'Banner eliminado');
-              loadBanners();
-            } catch (error) {
-              Alert.alert('Error', 'No se pudo eliminar el banner');
-            }
+    // For web, use window.confirm
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('¿Estás seguro de eliminar este banner?');
+      if (confirmed) {
+        try {
+          await axios.delete(`${BACKEND_URL}/api/admin/banners/${bannerId}`, { headers: ADMIN_HEADERS });
+          alert('Banner eliminado correctamente');
+          loadBanners();
+        } catch (error) {
+          alert('Error: No se pudo eliminar el banner');
+        }
+      }
+    } else {
+      Alert.alert(
+        'Eliminar Banner',
+        '¿Estás seguro de eliminar este banner?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Eliminar',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await axios.delete(`${BACKEND_URL}/api/admin/banners/${bannerId}`, { headers: ADMIN_HEADERS });
+                Alert.alert('Éxito', 'Banner eliminado');
+                loadBanners();
+              } catch (error) {
+                Alert.alert('Error', 'No se pudo eliminar el banner');
+              }
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   // Save payment methods

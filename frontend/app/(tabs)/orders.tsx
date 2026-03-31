@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -40,6 +40,18 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+
+  // Auto-rotate banners every 5 seconds
+  useEffect(() => {
+    if (banners.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCurrentBannerIndex((prev) => (prev + 1) % banners.length);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [banners.length]);
 
   useEffect(() => {
     loadOrders();
@@ -152,22 +164,40 @@ export default function Orders() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF5000" />
         }
       >
-        {/* Advertising Banner */}
+        {/* Advertising Banner - Auto Rotating */}
         {banners.length > 0 && (
-          <TouchableOpacity 
-            style={styles.adBanner} 
-            onPress={() => handleBannerPress(banners[0].link)}
-            activeOpacity={0.9}
-          >
-            <Image 
-              source={{ uri: banners[0].image_base64 }} 
-              style={styles.adBannerImage}
-              resizeMode="cover"
-            />
-            <View style={styles.adBadge}>
-              <Text style={styles.adBadgeText}>Publicidad</Text>
-            </View>
-          </TouchableOpacity>
+          <View style={styles.adBannerContainer}>
+            <TouchableOpacity 
+              style={styles.adBanner} 
+              onPress={() => handleBannerPress(banners[currentBannerIndex]?.link)}
+              activeOpacity={0.9}
+            >
+              <Image 
+                source={{ uri: banners[currentBannerIndex]?.image_base64 }} 
+                style={styles.adBannerImage}
+                resizeMode="cover"
+              />
+              <View style={styles.adBadge}>
+                <Text style={styles.adBadgeText}>Publicidad</Text>
+              </View>
+            </TouchableOpacity>
+            
+            {/* Dots indicator */}
+            {banners.length > 1 && (
+              <View style={styles.dotsContainer}>
+                {banners.map((_, index) => (
+                  <TouchableOpacity 
+                    key={index} 
+                    onPress={() => setCurrentBannerIndex(index)}
+                    style={[
+                      styles.dot,
+                      currentBannerIndex === index && styles.dotActive
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
         )}
 
         {orders.length === 0 ? (
@@ -308,12 +338,14 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   // Ad Banner styles
+  adBannerContainer: {
+    marginBottom: 20,
+  },
   adBanner: {
     width: '100%',
     height: 120,
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 20,
     backgroundColor: '#F5F5F5',
     position: 'relative',
   },
@@ -334,5 +366,22 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 10,
     fontWeight: '600',
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 6,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#DDD',
+  },
+  dotActive: {
+    backgroundColor: '#FF5000',
+    width: 20,
   },
 });
