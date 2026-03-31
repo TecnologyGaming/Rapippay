@@ -353,10 +353,13 @@ async def login(user_data: UserLogin):
     
     access_token = create_access_token(data={"sub": str(user["_id"])})
     
+    # Handle both old and new user formats
     user_response = UserResponse(
         id=str(user["_id"]),
         email=user["email"],
-        name=user["name"],
+        first_name=user.get("first_name", user.get("name", "User")),
+        last_name=user.get("last_name", ""),
+        phone_number=user.get("phone_number", "N/A"),
         is_admin=user.get("is_admin", False),
         balance=user.get("balance", 0.0),
         created_at=user["created_at"]
@@ -373,7 +376,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     return UserResponse(
         id=str(current_user["_id"]),
         email=current_user["email"],
-        name=current_user["name"],
+        first_name=current_user.get("first_name", current_user.get("name", "User")),
+        last_name=current_user.get("last_name", ""),
+        phone_number=current_user.get("phone_number", "N/A"),
         is_admin=current_user.get("is_admin", False),
         balance=current_user.get("balance", 0.0),
         created_at=current_user["created_at"]

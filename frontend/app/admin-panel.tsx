@@ -37,7 +37,7 @@ interface Order {
 
 export default function AdminPanel() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password' | 'users' | 'banners' | 'payments'>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [exchangeRate, setExchangeRate] = useState('');
   const [commission, setCommission] = useState('');
@@ -50,6 +50,15 @@ export default function AdminPanel() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+
+  // Users management states
+  const [users, setUsers] = useState<any[]>([]);
+  
+  // Banners management states
+  const [banners, setBanners] = useState<any[]>([]);
+  
+  // Payment methods states
+  const [bankDetails, setBankDetails] = useState<any>(null);
 
   useEffect(() => {
     checkSession();
