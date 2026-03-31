@@ -61,8 +61,19 @@ export default function Payment() {
 
   const pickImage = async () => {
     try {
-      const result = await ImagePicker.launchImagePickerAsync({
-        mediaTypes: 'images',
+      // Request permissions first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        if (Platform.OS === 'web') {
+          alert('Necesitamos acceso a tu galería para subir el comprobante de pago.');
+        } else {
+          Alert.alert('Permisos necesarios', 'Necesitamos acceso a tu galería para subir el comprobante de pago.');
+        }
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.7,
         base64: true,
@@ -73,7 +84,12 @@ export default function Payment() {
         setProofImage(base64Image);
       }
     } catch (error) {
-      Alert.alert('Error', 'No se pudo seleccionar la imagen');
+      console.error('Error picking image:', error);
+      if (Platform.OS === 'web') {
+        alert('No se pudo seleccionar la imagen. Por favor intenta de nuevo.');
+      } else {
+        Alert.alert('Error', 'No se pudo seleccionar la imagen');
+      }
     }
   };
 
