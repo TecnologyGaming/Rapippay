@@ -420,7 +420,7 @@ async def get_featured_gift_cards():
     ]
 
 @api_router.post("/admin/gift-cards", response_model=GiftCardResponse)
-async def create_gift_card(card_data: GiftCardCreate, current_user: dict = Depends(get_current_admin)):
+async def create_gift_card(card_data: GiftCardCreate, verified: bool = Depends(verify_admin_secret)):
     """Admin: Create a new gift card product"""
     card_dict = {
         "name": card_data.name,
@@ -599,7 +599,7 @@ async def get_order(order_id: str, current_user: dict = Depends(get_current_user
 # ===== ADMIN ORDER ROUTES =====
 
 @api_router.get("/admin/orders", response_model=List[OrderResponse])
-async def get_all_orders(current_user: dict = Depends(get_current_admin)):
+async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
     """Admin: Get all orders"""
     orders = await db.orders.find().sort("created_at", -1).to_list(1000)
     
@@ -630,7 +630,7 @@ async def get_all_orders(current_user: dict = Depends(get_current_admin)):
     ]
 
 @api_router.patch("/admin/orders/{order_id}", response_model=OrderResponse)
-async def update_order_status(order_id: str, update_data: OrderStatusUpdate, current_user: dict = Depends(get_current_admin)):
+async def update_order_status(order_id: str, update_data: OrderStatusUpdate, verified: bool = Depends(verify_admin_secret)):
     """Admin: Approve or reject an order"""
     try:
         order = await db.orders.find_one({"_id": ObjectId(order_id)})
@@ -684,7 +684,7 @@ async def update_order_status(order_id: str, update_data: OrderStatusUpdate, cur
         raise HTTPException(status_code=400, detail=str(e))
 
 @api_router.patch("/admin/orders/{order_id}/deliver", response_model=OrderResponse)
-async def deliver_gift_card(order_id: str, delivery_data: GiftCardDelivery, current_user: dict = Depends(get_current_admin)):
+async def deliver_gift_card(order_id: str, delivery_data: GiftCardDelivery, verified: bool = Depends(verify_admin_secret)):
     """Admin: Upload QR code and alphanumeric code for gift card delivery"""
     try:
         order = await db.orders.find_one({"_id": ObjectId(order_id)})
@@ -758,7 +758,7 @@ async def get_banners():
     ]
 
 @api_router.post("/admin/banners", response_model=BannerResponse)
-async def create_banner(banner_data: BannerCreate, current_user: dict = Depends(get_current_admin)):
+async def create_banner(banner_data: BannerCreate, verified: bool = Depends(verify_admin_secret)):
     """Admin: Create a new banner"""
     banner_dict = {
         "image_base64": banner_data.image_base64,
@@ -781,7 +781,7 @@ async def create_banner(banner_data: BannerCreate, current_user: dict = Depends(
     )
 
 @api_router.delete("/admin/banners/{banner_id}")
-async def delete_banner(banner_id: str, current_user: dict = Depends(get_current_admin)):
+async def delete_banner(banner_id: str, verified: bool = Depends(verify_admin_secret)):
     """Admin: Delete a banner"""
     try:
         result = await db.banners.delete_one({"_id": ObjectId(banner_id)})
@@ -810,7 +810,7 @@ async def get_system_config():
     )
 
 @api_router.patch("/admin/config", response_model=SystemConfigResponse)
-async def update_system_config(config_data: SystemConfigUpdate, current_user: dict = Depends(get_current_admin)):
+async def update_system_config(config_data: SystemConfigUpdate, verified: bool = Depends(verify_admin_secret)):
     """Admin: Update system configuration"""
     update_dict = {}
     
@@ -840,7 +840,7 @@ async def update_system_config(config_data: SystemConfigUpdate, current_user: di
     )
 
 @api_router.patch("/admin/branding", response_model=SystemConfigResponse)
-async def update_branding(branding_data: BrandingUpdate, current_user: dict = Depends(get_current_admin)):
+async def update_branding(branding_data: BrandingUpdate, verified: bool = Depends(verify_admin_secret)):
     """Admin: Update app branding (logo and favicon)"""
     update_dict = {}
     
@@ -869,7 +869,7 @@ async def update_branding(branding_data: BrandingUpdate, current_user: dict = De
 # ===== USER MANAGEMENT ROUTES (ADMIN) =====
 
 @api_router.get("/admin/users")
-async def get_all_users(current_user: dict = Depends(get_current_admin)):
+async def get_all_users(verified: bool = Depends(verify_admin_secret)):
     """Admin: Get all users"""
     users = await db.users.find().to_list(1000)
     
@@ -893,7 +893,7 @@ async def get_all_users(current_user: dict = Depends(get_current_admin)):
     return result
 
 @api_router.patch("/admin/users/{user_id}/toggle-status")
-async def toggle_user_status(user_id: str, current_user: dict = Depends(get_current_admin)):
+async def toggle_user_status(user_id: str, verified: bool = Depends(verify_admin_secret)):
     """Admin: Activate or deactivate a user"""
     try:
         user = await db.users.find_one({"_id": ObjectId(user_id)})
@@ -911,7 +911,7 @@ async def toggle_user_status(user_id: str, current_user: dict = Depends(get_curr
         raise HTTPException(status_code=400, detail=str(e))
 
 @api_router.post("/admin/users/{user_id}/reset-password")
-async def reset_user_password(user_id: str, new_password: dict, current_user: dict = Depends(get_current_admin)):
+async def reset_user_password(user_id: str, new_password: dict, verified: bool = Depends(verify_admin_secret)):
     """Admin: Reset user password"""
     try:
         user = await db.users.find_one({"_id": ObjectId(user_id)})

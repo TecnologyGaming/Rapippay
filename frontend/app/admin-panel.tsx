@@ -69,26 +69,21 @@ export default function AdminPanel() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Cerrar Sesión',
-      '¿Estás seguro que deseas salir?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Salir',
-          onPress: async () => {
-            await AsyncStorage.removeItem('admin_session');
-            router.replace('/admin-login');
-          },
-        },
-      ]
-    );
+    try {
+      await AsyncStorage.removeItem('admin_session');
+      router.push('/admin-login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      router.push('/admin-login');
+    }
   };
 
   const loadData = async () => {
     try {
+      const adminHeaders = { 'X-Admin-Secret': 'zinli-admin-2024' };
+      
       const [ordersRes, configRes] = await Promise.all([
-        axios.get(`${BACKEND_URL}/api/admin/orders`),
+        axios.get(`${BACKEND_URL}/api/admin/orders`, { headers: adminHeaders }),
         axios.get(`${BACKEND_URL}/api/config`),
       ]);
 
@@ -113,7 +108,8 @@ export default function AdminPanel() {
     try {
       await axios.patch(
         `${BACKEND_URL}/api/admin/orders/${orderId}`,
-        { status }
+        { status },
+        { headers: { 'X-Admin-Secret': 'zinli-admin-2024' } }
       );
 
       Alert.alert('Éxito', `Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
@@ -136,7 +132,8 @@ export default function AdminPanel() {
         {
           exchange_rate: parseFloat(exchangeRate),
           commission_percent: parseFloat(commission),
-        }
+        },
+        { headers: { 'X-Admin-Secret': 'zinli-admin-2024' } }
       );
 
       Alert.alert('Éxito', 'Configuración actualizada correctamente');
