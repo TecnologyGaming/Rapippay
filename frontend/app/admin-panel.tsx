@@ -173,10 +173,20 @@ export default function AdminPanel() {
   const handleLogout = async () => {
     try {
       await AsyncStorage.removeItem('admin_session');
-      router.push('/admin-login');
+      // Use different navigation for web vs native
+      if (Platform.OS === 'web') {
+        window.location.href = '/admin-login';
+      } else {
+        router.replace('/admin-login');
+      }
     } catch (error) {
       console.error('Error logging out:', error);
-      router.push('/admin-login');
+      // Force redirect anyway
+      if (Platform.OS === 'web') {
+        window.location.href = '/admin-login';
+      } else {
+        router.replace('/admin-login');
+      }
     }
   };
 
