@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,6 @@ export default function Payment() {
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [bankDetails, setBankDetails] = useState<any>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const zinliAmount = params.zinliAmount as string;
   const totalCost = params.totalCost as string;
@@ -63,10 +62,11 @@ export default function Payment() {
   };
 
   const pickImage = async () => {
-    // For web, use native file input
+    // For web, use native file input with document.getElementById
     if (Platform.OS === 'web') {
-      if (fileInputRef.current) {
-        fileInputRef.current.click();
+      const fileInput = document.getElementById('proof-image-input') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
       }
       return;
     }
@@ -279,8 +279,8 @@ export default function Payment() {
           {/* Hidden file input for web */}
           {Platform.OS === 'web' && (
             <input
+              id="proof-image-input"
               type="file"
-              ref={fileInputRef as any}
               onChange={handleFileChange}
               accept="image/*"
               style={{ display: 'none' }}
