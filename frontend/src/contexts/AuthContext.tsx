@@ -8,7 +8,10 @@ const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || proc
 interface User {
   id: string;
   email: string;
-  name: string;
+  name?: string;
+  first_name?: string;
+  last_name?: string;
+  phone_number?: string;
   is_admin: boolean;
   balance: number;
   created_at: string;
@@ -22,6 +25,7 @@ interface AuthContextType {
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateUser: (userData: Partial<User>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -117,8 +121,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUser = async (userData: Partial<User>) => {
+    if (!user) return;
+    
+    const updatedUser = { ...user, ...userData };
+    await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+    setUser(updatedUser as User);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

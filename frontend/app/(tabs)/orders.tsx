@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Image,
+  Dimensions,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +17,7 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 
 const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
+const { width } = Dimensions.get('window');
 
 interface Order {
   id: string;
@@ -24,14 +28,22 @@ interface Order {
   created_at: string;
 }
 
+interface Banner {
+  id: string;
+  image_base64: string;
+  link?: string;
+}
+
 export default function Orders() {
   const { token } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [banners, setBanners] = useState<Banner[]>([]);
 
   useEffect(() => {
     loadOrders();
+    loadBanners();
   }, []);
 
   const loadOrders = async () => {
@@ -47,10 +59,25 @@ export default function Orders() {
     }
   };
 
+  const loadBanners = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/banners`);
+      setBanners(response.data);
+    } catch (error) {
+      console.error('Error loading banners:', error);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadOrders();
+    await Promise.all([loadOrders(), loadBanners()]);
     setRefreshing(false);
+  };
+
+  const handleBannerPress = (link?: string) => {
+    if (link) {
+      Linking.openURL(link);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -125,6 +152,24 @@ export default function Orders() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF5000" />
         }
       >
+        {/* Advertising Banner */}
+        {banners.length > 0 && (
+          <TouchableOpacity 
+            style={styles.adBanner} 
+            onPress={() => handleBannerPress(banners[0].link)}
+            activeOpacity={0.9}
+          >
+            <Image 
+              source={{ uri: banners[0].image_base64 }} 
+              style={styles.adBannerImage}
+              resizeMode="cover"
+            />
+            <View style={styles.adBadge}>
+              <Text style={styles.adBadgeText}>Publicidad</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {orders.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="receipt-outline" size={64} color="#CCC" />
@@ -261,5 +306,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginLeft: 8,
+  },
+  // Ad Banner styles
+  adBanner: {
+    width: '100%',
+    height: 120,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+    backgroundColor: '#F5F5F5',
+    position: 'relative',
+  },
+  adBannerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  adBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  adBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '600',
   },
 });

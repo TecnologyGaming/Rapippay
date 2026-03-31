@@ -448,6 +448,49 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         created_at=current_user["created_at"]
     )
 
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+
+@api_router.patch("/users/me", response_model=UserResponse)
+async def update_me(user_data: UserUpdate, current_user: dict = Depends(get_current_user)):
+    """Update current user's profile data"""
+    update_dict = {}
+    
+    if user_data.first_name is not None:
+        update_dict["first_name"] = user_data.first_name
+    if user_data.last_name is not None:
+        update_dict["last_name"] = user_data.last_name
+    if user_data.phone_number is not None:
+        update_dict["phone_number"] = user_data.phone_number
+    
+    # Also update the name field for compatibility
+    if user_data.first_name or user_data.last_name:
+        first = user_data.first_name if user_data.first_name else current_user.get("first_name", "")
+        last = user_data.last_name if user_data.last_name else current_user.get("last_name", "")
+        update_dict["name"] = f"{first} {last}".strip()
+    
+    if update_dict:
+        await db.users.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": update_dict}
+        )
+    
+    # Get updated user
+    updated_user = await db.users.find_one({"_id": current_user["_id"]})
+    
+    return UserResponse(
+        id=str(updated_user["_id"]),
+        email=updated_user["email"],
+        first_name=updated_user.get("first_name", updated_user.get("name", "User")),
+        last_name=updated_user.get("last_name", ""),
+        phone_number=updated_user.get("phone_number", "N/A"),
+        is_admin=updated_user.get("is_admin", False),
+        balance=updated_user.get("balance", 0.0),
+        created_at=updated_user["created_at"]
+    )
+
 # ===== GIFT CARD ROUTES =====
 
 @api_router.get("/gift-cards", response_model=List[GiftCardResponse])
