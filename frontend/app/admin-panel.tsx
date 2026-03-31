@@ -10,13 +10,13 @@ import {
   ActivityIndicator,
   Image,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImagePicker from 'expo-image-picker';
 
 const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -31,34 +31,64 @@ interface Order {
   payment_proof_image: string;
   status: string;
   created_at: string;
+  order_type: string;
+  zinli_email?: string;
 }
 
-export default function Admin() {
+export default function AdminPanel() {
   const router = useRouter();
-  const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'banners'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password'>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [exchangeRate, setExchangeRate] = useState('');
   const [commission, setCommission] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  
+  // Password change states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    if (!user?.is_admin) {
-      Alert.alert('Acceso Denegado', 'No tienes permisos de administrador');
-      router.back();
-      return;
-    }
-    loadData();
+    checkSession();
   }, []);
+
+  const checkSession = async () => {
+    try {
+      const session = await AsyncStorage.getItem('admin_session');
+      if (session !== 'true') {
+        router.replace('/admin-login');
+        return;
+      }
+      loadData();
+    } catch (error) {
+      router.replace('/admin-login');
+    }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Cerrar Sesión',
+      '¿Estás seguro que deseas salir?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Salir',
+          onPress: async () => {
+            await AsyncStorage.removeItem('admin_session');
+            router.replace('/admin-login');
+          },
+        },
+      ]
+    );
+  };
 
   const loadData = async () => {
     try {
       const [ordersRes, configRes] = await Promise.all([
-        axios.get(`${BACKEND_URL}/api/admin/orders`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        axios.get(`${BACKEND_URL}/api/admin/orders`),
         axios.get(`${BACKEND_URL}/api/config`),
       ]);
 
@@ -83,8 +113,7 @@ export default function Admin() {
     try {
       await axios.patch(
         `${BACKEND_URL}/api/admin/orders/${orderId}`,
-        { status },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { status }
       );
 
       Alert.alert('Éxito', `Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
@@ -107,13 +136,54 @@ export default function Admin() {
         {
           exchange_rate: parseFloat(exchangeRate),
           commission_percent: parseFloat(commission),
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       Alert.alert('Éxito', 'Configuración actualizada correctamente');
     } catch (error) {
       Alert.alert('Error', 'No se pudo actualizar la configuración');
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Error', 'Por favor completa todos los campos');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'Las contraseñas nuevas no coinciden');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      // Verificar contraseña actual
+      const savedPassword = await AsyncStorage.getItem('admin_password');
+      const correctPassword = savedPassword || 'admin123';
+
+      if (currentPassword !== correctPassword) {
+        Alert.alert('Error', 'La contraseña actual es incorrecta');
+        setChangingPassword(false);
+        return;
+      }
+
+      // Guardar nueva contraseña
+      await AsyncStorage.setItem('admin_password', newPassword);
+      
+      Alert.alert('Éxito', 'Contraseña actualizada correctamente');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cambiar la contraseña');
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -165,11 +235,10 @@ export default function Admin() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Panel Admin</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+          <Ionicons name="log-out" size={24} color="#FF5000" />
+        </TouchableOpacity>
       </View>
 
       {/* Tabs */}
@@ -188,6 +257,14 @@ export default function Admin() {
         >
           <Text style={[styles.tabText, activeTab === 'config' && styles.tabTextActive]}>
             Configuración
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'password' && styles.tabActive]}
+          onPress={() => setActiveTab('password')}
+        >
+          <Text style={[styles.tabText, activeTab === 'password' && styles.tabTextActive]}>
+            Contraseña
           </Text>
         </TouchableOpacity>
       </View>
@@ -222,9 +299,18 @@ export default function Admin() {
                     </View>
 
                     <View style={styles.orderAmount}>
-                      <Text style={styles.orderAmountLabel}>Monto:</Text>
+                      <Text style={styles.orderAmountLabel}>
+                        {order.order_type === 'gift_card' ? 'Gift Card' : 'Recarga Zinli'}:
+                      </Text>
                       <Text style={styles.orderAmountValue}>${order.zinli_amount} USD</Text>
                     </View>
+
+                    {order.zinli_email && (
+                      <View style={styles.orderDetail}>
+                        <Text style={styles.orderDetailLabel}>Email Zinli:</Text>
+                        <Text style={styles.orderDetailValue}>{order.zinli_email}</Text>
+                      </View>
+                    )}
 
                     <View style={styles.orderDetail}>
                       <Text style={styles.orderDetailLabel}>Total pagado:</Text>
@@ -337,30 +423,98 @@ export default function Admin() {
             </TouchableOpacity>
           </View>
         )}
+
+        {activeTab === 'password' && (
+          <View>
+            <View style={styles.passwordCard}>
+              <Ionicons name="lock-closed" size={48} color="#FF5000" style={{ alignSelf: 'center', marginBottom: 16 }} />
+              <Text style={styles.configTitle}>Cambiar Contraseña</Text>
+              <Text style={styles.configDescription}>Actualiza tu contraseña de acceso al panel</Text>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Contraseña Actual:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ingresa tu contraseña actual"
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  secureTextEntry
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Nueva Contraseña:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mínimo 6 caracteres"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Confirmar Nueva Contraseña:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Repite la nueva contraseña"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.saveButton, changingPassword && { opacity: 0.6 }]} 
+                onPress={handleChangePassword}
+                disabled={changingPassword}
+              >
+                {changingPassword ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons name="key" size={24} color="#FFF" />
+                    <Text style={styles.saveButtonText}>Actualizar Contraseña</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {/* Image Modal */}
       {selectedOrder && (
-        <View style={styles.modal}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Comprobante de Pago</Text>
-              <TouchableOpacity onPress={() => setSelectedOrder(null)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setSelectedOrder(null)}
+        >
+          <View style={styles.modal}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Comprobante de Pago</Text>
+                <TouchableOpacity onPress={() => setSelectedOrder(null)}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                <Image
+                  source={{ uri: selectedOrder.payment_proof_image }}
+                  style={styles.proofImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.modalReference}>
+                  Referencia: {selectedOrder.reference_number}
+                </Text>
+              </ScrollView>
             </View>
-            <ScrollView>
-              <Image
-                source={{ uri: selectedOrder.payment_proof_image }}
-                style={styles.proofImage}
-                resizeMode="contain"
-              />
-              <Text style={styles.modalReference}>
-                Referencia: {selectedOrder.reference_number}
-              </Text>
-            </ScrollView>
           </View>
-        </View>
+        </Modal>
       )}
     </View>
   );
@@ -382,19 +536,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFF',
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
     paddingTop: 60,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
-  backButton: {
-    padding: 8,
-  },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+  },
+  logoutButton: {
+    padding: 8,
   },
   tabs: {
     flexDirection: 'row',
@@ -412,7 +566,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#FF5000',
   },
   tabText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
@@ -557,6 +711,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  passwordCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
   configTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -581,9 +745,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     borderRadius: 12,
     padding: 16,
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
     color: '#333',
+    marginBottom: 16,
   },
   saveButton: {
     flexDirection: 'row',
@@ -605,11 +769,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   modal: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
