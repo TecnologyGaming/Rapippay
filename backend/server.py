@@ -219,6 +219,33 @@ class PaymentMethodItem(BaseModel):
     fields: dict  # Dynamic fields like {bank: "", account: "", email: ""}
     is_active: bool = True
 
+# Gift Card Models
+class GiftCardCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    image_base64: Optional[str] = None
+    amounts: List[float]
+    is_active: bool = True
+
+class GiftCardUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    image_base64: Optional[str] = None
+    amounts: Optional[List[float]] = None
+    is_active: Optional[bool] = None
+
+# Push Notification Models
+class PushTokenRegister(BaseModel):
+    token: str
+    user_id: Optional[str] = None
+
+class PushNotificationSend(BaseModel):
+    title: str
+    body: str
+    target: str = "all"  # "all", "user_id", or list of user_ids
+    user_ids: Optional[List[str]] = None
+    data: Optional[dict] = None
+
 # ===== INITIALIZE DEFAULT DATA =====
 
 async def init_system_config():
@@ -651,7 +678,7 @@ async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
             user_id=order["user_id"],
             user_email=order["user_email"],
             user_name=order["user_name"],
-            order_type=order["order_type"],
+            order_type=order.get("order_type", "zinli"),
             zinli_amount=order.get("zinli_amount"),
             zinli_email=order.get("zinli_email"),
             gift_card_id=order.get("gift_card_id"),
@@ -666,7 +693,7 @@ async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
             gift_card_qr_image=order.get("gift_card_qr_image"),
             gift_card_code=order.get("gift_card_code"),
             created_at=order["created_at"],
-            updated_at=order["updated_at"]
+            updated_at=order.get("updated_at", order["created_at"])
         )
         for order in orders
     ]
@@ -1051,6 +1078,213 @@ async def reset_user_password(user_id: str, new_password: dict, verified: bool =
         return {"message": "Password reset successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# ===== GIFT CARDS ADMIN CRUD =====
+
+@api_router.get("/admin/gift-cards")
+async def admin_get_gift_cards(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get all gift cards"""
+    cards = await db.gift_cards.find().to_list(100)
+    return [
+        {
+            "id": str(card["_id"]),
+            "name": card["name"],
+            "description": card.get("description", ""),
+            "image_base64": card.get("image_base64"),
+            "amounts": card["amounts"],
+            "is_active": card.get("is_active", True),
+            "created_at": card.get("created_at")
+        }
+        for card in cards
+    ]
+
+@api_router.post("/admin/gift-cards")
+async def admin_create_gift_card(card_data: GiftCardCreate, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Create a new gift card"""
+    new_card = {
+        "name": card_data.name,
+        "description": card_data.description,
+        "image_base64": card_data.image_base64,
+        "amounts": card_data.amounts,
+        "is_active": card_data.is_active,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.gift_cards.insert_one(new_card)
+    new_card["id"] = str(result.inserted_id)
+    
+    return {"message": "Gift card created successfully", "card": new_card}
+
+@api_router.patch("/admin/gift-cards/{card_id}")
+async def admin_update_gift_card(card_id: str, card_data: GiftCardUpdate, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update a gift card"""
+    try:
+        card = await db.gift_cards.find_one({"_id": ObjectId(card_id)})
+        if not card:
+            raise HTTPException(status_code=404, detail="Gift card not found")
+        
+        update_dict = {}
+        if card_data.name is not None:
+            update_dict["name"] = card_data.name
+        if card_data.description is not None:
+            update_dict["description"] = card_data.description
+        if card_data.image_base64 is not None:
+            update_dict["image_base64"] = card_data.image_base64
+        if card_data.amounts is not None:
+            update_dict["amounts"] = card_data.amounts
+        if card_data.is_active is not None:
+            update_dict["is_active"] = card_data.is_active
+        
+        if update_dict:
+            await db.gift_cards.update_one(
+                {"_id": ObjectId(card_id)},
+                {"$set": update_dict}
+            )
+        
+        return {"message": "Gift card updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.delete("/admin/gift-cards/{card_id}")
+async def admin_delete_gift_card(card_id: str, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Delete a gift card"""
+    try:
+        result = await db.gift_cards.delete_one({"_id": ObjectId(card_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Gift card not found")
+        
+        return {"message": "Gift card deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.patch("/admin/gift-cards/{card_id}/toggle")
+async def admin_toggle_gift_card(card_id: str, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Toggle gift card active status"""
+    try:
+        card = await db.gift_cards.find_one({"_id": ObjectId(card_id)})
+        if not card:
+            raise HTTPException(status_code=404, detail="Gift card not found")
+        
+        new_status = not card.get("is_active", True)
+        await db.gift_cards.update_one(
+            {"_id": ObjectId(card_id)},
+            {"$set": {"is_active": new_status}}
+        )
+        
+        return {"message": f"Gift card {'activated' if new_status else 'deactivated'}", "is_active": new_status}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ===== PUSH NOTIFICATIONS =====
+
+@api_router.post("/push/register-token")
+async def register_push_token(token_data: PushTokenRegister):
+    """Register a push notification token"""
+    existing = await db.push_tokens.find_one({"token": token_data.token})
+    if existing:
+        # Update existing token
+        await db.push_tokens.update_one(
+            {"token": token_data.token},
+            {"$set": {"user_id": token_data.user_id, "updated_at": datetime.utcnow()}}
+        )
+    else:
+        # Insert new token
+        await db.push_tokens.insert_one({
+            "token": token_data.token,
+            "user_id": token_data.user_id,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        })
+    
+    return {"message": "Push token registered successfully"}
+
+@api_router.get("/admin/push-tokens")
+async def admin_get_push_tokens(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get all registered push tokens"""
+    tokens = await db.push_tokens.find().to_list(1000)
+    return {
+        "total": len(tokens),
+        "tokens": [
+            {
+                "id": str(t["_id"]),
+                "token": t["token"][:20] + "..." if len(t["token"]) > 20 else t["token"],
+                "user_id": t.get("user_id"),
+                "created_at": t.get("created_at")
+            }
+            for t in tokens
+        ]
+    }
+
+@api_router.post("/admin/push/send")
+async def admin_send_push_notification(notification: PushNotificationSend, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Send push notification to users"""
+    import httpx
+    
+    # Get tokens based on target
+    if notification.target == "all":
+        tokens = await db.push_tokens.find().to_list(1000)
+    elif notification.user_ids:
+        tokens = await db.push_tokens.find({"user_id": {"$in": notification.user_ids}}).to_list(1000)
+    else:
+        return {"error": "Invalid target specified"}
+    
+    if not tokens:
+        return {"message": "No registered devices found", "sent": 0}
+    
+    # Prepare Expo push messages
+    messages = []
+    for token_doc in tokens:
+        push_token = token_doc["token"]
+        if push_token.startswith("ExponentPushToken"):
+            messages.append({
+                "to": push_token,
+                "title": notification.title,
+                "body": notification.body,
+                "data": notification.data or {},
+                "sound": "default"
+            })
+    
+    if not messages:
+        return {"message": "No valid Expo push tokens found", "sent": 0}
+    
+    # Send to Expo Push API
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Content-Type": "application/json"}
+            )
+            result = response.json()
+            
+            # Save notification history
+            await db.notifications.insert_one({
+                "title": notification.title,
+                "body": notification.body,
+                "target": notification.target,
+                "sent_count": len(messages),
+                "created_at": datetime.utcnow()
+            })
+            
+            return {"message": "Notifications sent", "sent": len(messages), "response": result}
+    except Exception as e:
+        return {"error": str(e), "sent": 0}
+
+@api_router.get("/admin/notifications")
+async def admin_get_notification_history(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get notification history"""
+    notifications = await db.notifications.find().sort("created_at", -1).to_list(50)
+    return [
+        {
+            "id": str(n["_id"]),
+            "title": n["title"],
+            "body": n["body"],
+            "target": n.get("target", "all"),
+            "sent_count": n.get("sent_count", 0),
+            "created_at": n.get("created_at")
+        }
+        for n in notifications
+    ]
 
 # Include router
 app.include_router(api_router)

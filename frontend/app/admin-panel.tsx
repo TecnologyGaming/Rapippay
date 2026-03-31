@@ -73,9 +73,27 @@ interface PaymentMethod {
   is_active: boolean;
 }
 
+interface GiftCard {
+  id: string;
+  name: string;
+  description: string;
+  image_base64?: string;
+  amounts: number[];
+  is_active: boolean;
+}
+
+interface PushNotification {
+  id: string;
+  title: string;
+  body: string;
+  target: string;
+  sent_count: number;
+  created_at: string;
+}
+
 export default function AdminPanel() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password' | 'users' | 'banners' | 'payments' | 'branding' | 'contact'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'config' | 'password' | 'users' | 'banners' | 'payments' | 'branding' | 'contact' | 'giftcards' | 'notifications'>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [exchangeRate, setExchangeRate] = useState('');
   const [commission, setCommission] = useState('');
@@ -117,6 +135,23 @@ export default function AdminPanel() {
   const [newPaymentName, setNewPaymentName] = useState('');
   const [newPaymentFields, setNewPaymentFields] = useState<{key: string, value: string}[]>([{key: '', value: ''}]);
   const [newPaymentLogo, setNewPaymentLogo] = useState<string | null>(null);
+
+  // Gift Cards states
+  const [giftCards, setGiftCards] = useState<GiftCard[]>([]);
+  const [giftCardsLoading, setGiftCardsLoading] = useState(false);
+  const [showAddGiftCardModal, setShowAddGiftCardModal] = useState(false);
+  const [editingGiftCard, setEditingGiftCard] = useState<GiftCard | null>(null);
+  const [newGiftCardName, setNewGiftCardName] = useState('');
+  const [newGiftCardDesc, setNewGiftCardDesc] = useState('');
+  const [newGiftCardImage, setNewGiftCardImage] = useState<string | null>(null);
+  const [newGiftCardAmounts, setNewGiftCardAmounts] = useState('10, 25, 50, 100');
+
+  // Push Notifications states
+  const [notificationHistory, setNotificationHistory] = useState<PushNotification[]>([]);
+  const [pushTitle, setPushTitle] = useState('');
+  const [pushBody, setPushBody] = useState('');
+  const [pushSending, setPushSending] = useState(false);
+  const [totalDevices, setTotalDevices] = useState(0);
 
   useEffect(() => {
     checkSession();
@@ -515,6 +550,182 @@ export default function AdminPanel() {
     return icons[platform] || 'link';
   };
 
+  // ===== GIFT CARDS FUNCTIONS =====
+  const loadGiftCards = async () => {
+    setGiftCardsLoading(true);
+    try {
+      const res = await axios.get(`${BACKEND_URL}/api/admin/gift-cards`, { headers: ADMIN_HEADERS });
+      setGiftCards(res.data);
+    } catch (error) {
+      console.error('Error loading gift cards:', error);
+    } finally {
+      setGiftCardsLoading(false);
+    }
+  };
+
+  const handlePickGiftCardImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 2],
+      quality: 0.7,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setNewGiftCardImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+    }
+  };
+
+  const handleAddGiftCard = async () => {
+    if (!newGiftCardName.trim()) {
+      Alert.alert('Error', 'Ingresa el nombre de la Gift Card');
+      return;
+    }
+
+    const amounts = newGiftCardAmounts.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
+    if (amounts.length === 0) {
+      Alert.alert('Error', 'Ingresa al menos un monto válido');
+      return;
+    }
+
+    try {
+      await axios.post(
+        `${BACKEND_URL}/api/admin/gift-cards`,
+        {
+          name: newGiftCardName,
+          description: newGiftCardDesc,
+          image_base64: newGiftCardImage,
+          amounts: amounts,
+          is_active: true
+        },
+        { headers: ADMIN_HEADERS }
+      );
+      
+      Alert.alert('Éxito', 'Gift Card creada correctamente');
+      setShowAddGiftCardModal(false);
+      setNewGiftCardName('');
+      setNewGiftCardDesc('');
+      setNewGiftCardImage(null);
+      setNewGiftCardAmounts('10, 25, 50, 100');
+      loadGiftCards();
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo crear la Gift Card');
+    }
+  };
+
+  const handleUpdateGiftCard = async () => {
+    if (!editingGiftCard) return;
+
+    const amounts = newGiftCardAmounts.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
+
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/gift-cards/${editingGiftCard.id}`,
+        {
+          name: newGiftCardName || editingGiftCard.name,
+          description: newGiftCardDesc,
+          image_base64: newGiftCardImage,
+          amounts: amounts.length > 0 ? amounts : editingGiftCard.amounts,
+        },
+        { headers: ADMIN_HEADERS }
+      );
+      
+      Alert.alert('Éxito', 'Gift Card actualizada');
+      setEditingGiftCard(null);
+      setNewGiftCardName('');
+      setNewGiftCardDesc('');
+      setNewGiftCardImage(null);
+      setNewGiftCardAmounts('10, 25, 50, 100');
+      loadGiftCards();
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo actualizar');
+    }
+  };
+
+  const handleDeleteGiftCard = (cardId: string) => {
+    Alert.alert(
+      'Eliminar Gift Card',
+      '¿Estás seguro de eliminar esta Gift Card?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(`${BACKEND_URL}/api/admin/gift-cards/${cardId}`, { headers: ADMIN_HEADERS });
+              Alert.alert('Éxito', 'Gift Card eliminada');
+              loadGiftCards();
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo eliminar');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleToggleGiftCard = async (cardId: string) => {
+    try {
+      await axios.patch(`${BACKEND_URL}/api/admin/gift-cards/${cardId}/toggle`, {}, { headers: ADMIN_HEADERS });
+      loadGiftCards();
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cambiar el estado');
+    }
+  };
+
+  const openEditGiftCard = (card: GiftCard) => {
+    setEditingGiftCard(card);
+    setNewGiftCardName(card.name);
+    setNewGiftCardDesc(card.description);
+    setNewGiftCardImage(card.image_base64 || null);
+    setNewGiftCardAmounts(card.amounts.join(', '));
+  };
+
+  // ===== PUSH NOTIFICATIONS FUNCTIONS =====
+  const loadNotifications = async () => {
+    try {
+      const [historyRes, tokensRes] = await Promise.all([
+        axios.get(`${BACKEND_URL}/api/admin/notifications`, { headers: ADMIN_HEADERS }),
+        axios.get(`${BACKEND_URL}/api/admin/push-tokens`, { headers: ADMIN_HEADERS })
+      ]);
+      setNotificationHistory(historyRes.data);
+      setTotalDevices(tokensRes.data.total);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    }
+  };
+
+  const handleSendPushNotification = async () => {
+    if (!pushTitle.trim() || !pushBody.trim()) {
+      Alert.alert('Error', 'Ingresa título y mensaje');
+      return;
+    }
+
+    setPushSending(true);
+    try {
+      const res = await axios.post(
+        `${BACKEND_URL}/api/admin/push/send`,
+        {
+          title: pushTitle,
+          body: pushBody,
+          target: 'all'
+        },
+        { headers: ADMIN_HEADERS }
+      );
+      
+      Alert.alert('Éxito', `Notificación enviada a ${res.data.sent} dispositivos`);
+      setPushTitle('');
+      setPushBody('');
+      loadNotifications();
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo enviar la notificación');
+    } finally {
+      setPushSending(false);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadData();
@@ -719,6 +930,24 @@ export default function AdminPanel() {
             <Ionicons name="settings" size={18} color={activeTab === 'config' ? '#FF5000' : '#666'} />
             <Text style={[styles.tabText, activeTab === 'config' && styles.tabTextActive]}>
               Config
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'giftcards' && styles.tabActive]}
+            onPress={() => { setActiveTab('giftcards'); loadGiftCards(); }}
+          >
+            <Ionicons name="gift" size={18} color={activeTab === 'giftcards' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'giftcards' && styles.tabTextActive]}>
+              Gift Cards
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'notifications' && styles.tabActive]}
+            onPress={() => { setActiveTab('notifications'); loadNotifications(); }}
+          >
+            <Ionicons name="notifications" size={18} color={activeTab === 'notifications' ? '#FF5000' : '#666'} />
+            <Text style={[styles.tabText, activeTab === 'notifications' && styles.tabTextActive]}>
+              Push
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -1296,6 +1525,146 @@ export default function AdminPanel() {
             </View>
           </View>
         )}
+
+        {/* ===== GIFT CARDS TAB ===== */}
+        {activeTab === 'giftcards' && (
+          <View>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Gift Cards</Text>
+              <TouchableOpacity 
+                style={styles.addButton} 
+                onPress={() => setShowAddGiftCardModal(true)}
+              >
+                <Ionicons name="add-circle" size={24} color="#FF5000" />
+                <Text style={styles.addButtonText}>Agregar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.infoBox}>
+              <Ionicons name="information-circle" size={20} color="#FF5000" />
+              <Text style={styles.infoText}>Tamaño sugerido de imagen: 300x200 píxeles (proporción 3:2)</Text>
+            </View>
+
+            {giftCardsLoading ? (
+              <ActivityIndicator size="large" color="#FF5000" style={{ marginTop: 40 }} />
+            ) : giftCards.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="gift-outline" size={64} color="#CCC" />
+                <Text style={styles.emptyText}>No hay Gift Cards</Text>
+              </View>
+            ) : (
+              giftCards.map((card) => (
+                <View key={card.id} style={[styles.giftCardItem, !card.is_active && { opacity: 0.5 }]}>
+                  {card.image_base64 ? (
+                    <Image source={{ uri: card.image_base64 }} style={styles.giftCardImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.giftCardImagePlaceholder}>
+                      <Ionicons name="gift" size={32} color="#CCC" />
+                    </View>
+                  )}
+                  <View style={styles.giftCardInfo}>
+                    <Text style={styles.giftCardName}>{card.name}</Text>
+                    <Text style={styles.giftCardDesc} numberOfLines={1}>{card.description}</Text>
+                    <Text style={styles.giftCardAmounts}>
+                      Montos: ${card.amounts.join(', $')}
+                    </Text>
+                  </View>
+                  <View style={styles.giftCardActions}>
+                    <TouchableOpacity onPress={() => handleToggleGiftCard(card.id)}>
+                      <Ionicons 
+                        name={card.is_active ? 'eye' : 'eye-off'} 
+                        size={22} 
+                        color={card.is_active ? '#4CAF50' : '#999'} 
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => openEditGiftCard(card)}>
+                      <Ionicons name="create" size={22} color="#2196F3" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDeleteGiftCard(card.id)}>
+                      <Ionicons name="trash" size={22} color="#F44336" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* ===== NOTIFICATIONS TAB ===== */}
+        {activeTab === 'notifications' && (
+          <View>
+            <Text style={styles.sectionTitle}>Notificaciones Push</Text>
+
+            {/* Stats */}
+            <View style={styles.statsCard}>
+              <Ionicons name="phone-portrait" size={32} color="#FF5000" />
+              <Text style={styles.statsNumber}>{totalDevices}</Text>
+              <Text style={styles.statsLabel}>Dispositivos registrados</Text>
+            </View>
+
+            {/* Send notification form */}
+            <View style={styles.notificationForm}>
+              <Text style={styles.configTitle}>Enviar Notificación</Text>
+              
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Título:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Título de la notificación"
+                  value={pushTitle}
+                  onChangeText={setPushTitle}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Mensaje:</Text>
+                <TextInput
+                  style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+                  placeholder="Escribe tu mensaje aquí..."
+                  value={pushBody}
+                  onChangeText={setPushBody}
+                  multiline
+                  numberOfLines={4}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.saveButton, pushSending && { opacity: 0.6 }]} 
+                onPress={handleSendPushNotification}
+                disabled={pushSending}
+              >
+                {pushSending ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons name="send" size={24} color="#FFF" />
+                    <Text style={styles.saveButtonText}>Enviar a Todos</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Notification history */}
+            <Text style={[styles.configTitle, { marginTop: 24 }]}>Historial</Text>
+            {notificationHistory.length === 0 ? (
+              <Text style={styles.noSocialText}>No hay notificaciones enviadas</Text>
+            ) : (
+              notificationHistory.map((notif) => (
+                <View key={notif.id} style={styles.notificationItem}>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>{notif.title}</Text>
+                    <Text style={styles.notificationBody} numberOfLines={2}>{notif.body}</Text>
+                    <Text style={styles.notificationMeta}>
+                      {notif.sent_count} enviados • {formatDate(notif.created_at)}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Image Modal */}
@@ -1453,6 +1822,95 @@ export default function AdminPanel() {
               <TouchableOpacity style={styles.saveButton} onPress={handleAddPaymentMethod}>
                 <Ionicons name="add-circle" size={24} color="#FFF" />
                 <Text style={styles.saveButtonText}>Crear Método de Pago</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Add/Edit Gift Card Modal */}
+      {(showAddGiftCardModal || editingGiftCard) && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => { setShowAddGiftCardModal(false); setEditingGiftCard(null); }}
+        >
+          <View style={styles.modal}>
+            <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{editingGiftCard ? 'Editar Gift Card' : 'Nueva Gift Card'}</Text>
+                <TouchableOpacity onPress={() => { 
+                  setShowAddGiftCardModal(false); 
+                  setEditingGiftCard(null); 
+                  setNewGiftCardName(''); 
+                  setNewGiftCardDesc(''); 
+                  setNewGiftCardImage(null); 
+                  setNewGiftCardAmounts('10, 25, 50, 100'); 
+                }}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={{ maxHeight: 450 }}>
+                {/* Image */}
+                <TouchableOpacity style={styles.giftCardImagePicker} onPress={handlePickGiftCardImage}>
+                  {newGiftCardImage ? (
+                    <Image source={{ uri: newGiftCardImage }} style={styles.giftCardImagePreview} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.giftCardImagePlaceholderLarge}>
+                      <Ionicons name="image" size={48} color="#999" />
+                      <Text style={styles.logoPickerText}>Agregar Imagen</Text>
+                      <Text style={styles.imageSizeHint}>Tamaño recomendado: 300x200px</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Name */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Nombre:</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ej: Amazon, Netflix, Spotify"
+                    value={newGiftCardName}
+                    onChangeText={setNewGiftCardName}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                {/* Description */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Descripción:</Text>
+                  <TextInput
+                    style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+                    placeholder="Descripción de la Gift Card..."
+                    value={newGiftCardDesc}
+                    onChangeText={setNewGiftCardDesc}
+                    multiline
+                    numberOfLines={3}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                {/* Amounts */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Montos disponibles (separados por coma):</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="10, 25, 50, 100"
+                    value={newGiftCardAmounts}
+                    onChangeText={setNewGiftCardAmounts}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity 
+                style={styles.saveButton} 
+                onPress={editingGiftCard ? handleUpdateGiftCard : handleAddGiftCard}
+              >
+                <Ionicons name={editingGiftCard ? "save" : "add-circle"} size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>{editingGiftCard ? 'Guardar Cambios' : 'Crear Gift Card'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2107,5 +2565,160 @@ const styles = StyleSheet.create({
     color: '#FF5000',
     marginLeft: 4,
     fontWeight: '600',
+  },
+  // Gift Cards styles
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#FF5000',
+  },
+  giftCardItem: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  giftCardImage: {
+    width: 80,
+    height: 54,
+    borderRadius: 8,
+  },
+  giftCardImagePlaceholder: {
+    width: 80,
+    height: 54,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  giftCardInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  giftCardName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  giftCardDesc: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  giftCardAmounts: {
+    fontSize: 12,
+    color: '#FF5000',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  giftCardActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  giftCardImagePicker: {
+    width: '100%',
+    height: 140,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    backgroundColor: '#F5F5F5',
+  },
+  giftCardImagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  giftCardImagePlaceholderLarge: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#DDD',
+    borderRadius: 12,
+  },
+  imageSizeHint: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 4,
+  },
+  // Notifications styles
+  statsCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  statsNumber: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 8,
+  },
+  statsLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  notificationForm: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  notificationItem: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  notificationBody: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  notificationMeta: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 8,
   },
 });
