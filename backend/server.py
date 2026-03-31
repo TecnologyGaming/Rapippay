@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -29,6 +29,7 @@ security = HTTPBearer()
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "zinli-recharge-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+ADMIN_SECRET = "zinli-admin-2024"  # Simple admin authentication
 
 # Create the main app
 app = FastAPI(title="Zinli Recharge & Gift Cards API")
@@ -69,6 +70,12 @@ async def get_current_admin(current_user: dict = Depends(get_current_user)):
     if not current_user.get("is_admin", False):
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+async def verify_admin_secret(x_admin_secret: str = Header(None)):
+    """Verify admin secret from header for simple admin authentication"""
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid admin credentials")
+    return True
 
 # ===== MODELS =====
 
