@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ export default function Payment() {
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [bankDetails, setBankDetails] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const zinliAmount = params.zinliAmount as string;
   const totalCost = params.totalCost as string;
@@ -36,18 +37,7 @@ export default function Payment() {
 
   useEffect(() => {
     loadBankDetails();
-    requestPermissions();
   }, []);
-
-  const requestPermissions = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permisos necesarios',
-        'Necesitamos acceso a tu galería para subir el comprobante de pago.'
-      );
-    }
-  };
 
   const loadBankDetails = async () => {
     try {
@@ -59,16 +49,33 @@ export default function Payment() {
     }
   };
 
+  // Handle file input change for web
+  const handleFileChange = (event: any) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setProofImage(base64String);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const pickImage = async () => {
+    // For web, use native file input
+    if (Platform.OS === 'web') {
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+      return;
+    }
+
+    // For native platforms
     try {
-      // Request permissions first
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        if (Platform.OS === 'web') {
-          alert('Necesitamos acceso a tu galería para subir el comprobante de pago.');
-        } else {
-          Alert.alert('Permisos necesarios', 'Necesitamos acceso a tu galería para subir el comprobante de pago.');
-        }
+        Alert.alert('Permisos necesarios', 'Necesitamos acceso a tu galería para subir el comprobante de pago.');
         return;
       }
 
@@ -85,11 +92,7 @@ export default function Payment() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      if (Platform.OS === 'web') {
-        alert('No se pudo seleccionar la imagen. Por favor intenta de nuevo.');
-      } else {
-        Alert.alert('Error', 'No se pudo seleccionar la imagen');
-      }
+      Alert.alert('Error', 'No se pudo seleccionar la imagen');
     }
   };
 
@@ -272,6 +275,17 @@ export default function Payment() {
         {/* Upload Proof */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Comprobante de Pago</Text>
+
+          {/* Hidden file input for web */}
+          {Platform.OS === 'web' && (
+            <input
+              type="file"
+              ref={fileInputRef as any}
+              onChange={handleFileChange}
+              accept="image/*"
+              style={{ display: 'none' }}
+            />
+          )}
 
           <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
             <Ionicons name="cloud-upload" size={32} color="#FF5000" />
