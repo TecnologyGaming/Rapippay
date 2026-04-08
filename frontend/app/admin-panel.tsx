@@ -488,6 +488,17 @@ export default function AdminPanel() {
 
   // Update branding (logo/favicon)
   const handleUpdateBranding = async (type: 'logo' | 'favicon') => {
+    // For web, use native file input
+    if (Platform.OS === 'web') {
+      const inputId = type === 'logo' ? 'logo-input' : 'favicon-input';
+      const fileInput = document.getElementById(inputId) as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
+      return;
+    }
+
+    // For native platforms
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -498,16 +509,43 @@ export default function AdminPanel() {
 
     if (!result.canceled && result.assets[0].base64) {
       const base64Image = `data:image/png;base64,${result.assets[0].base64}`;
-      try {
-        await axios.patch(
-          `${BACKEND_URL}/api/admin/branding`,
-          type === 'logo' ? { logo_base64: base64Image } : { favicon_base64: base64Image },
-          { headers: ADMIN_HEADERS }
-        );
-        if (type === 'logo') setLogoBase64(base64Image);
-        else setFaviconBase64(base64Image);
+      await saveBrandingImage(type, base64Image);
+    }
+  };
+
+  // Handle file input change for web branding
+  const handleBrandingFileChange = (event: any, type: 'logo' | 'favicon') => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        await saveBrandingImage(type, base64String);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Save branding image to backend
+  const saveBrandingImage = async (type: 'logo' | 'favicon', base64Image: string) => {
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/branding`,
+        type === 'logo' ? { logo_base64: base64Image } : { favicon_base64: base64Image },
+        { headers: ADMIN_HEADERS }
+      );
+      if (type === 'logo') setLogoBase64(base64Image);
+      else setFaviconBase64(base64Image);
+      
+      if (Platform.OS === 'web') {
+        alert(`${type === 'logo' ? 'Logo' : 'Favicon'} actualizado correctamente`);
+      } else {
         Alert.alert('Éxito', `${type === 'logo' ? 'Logo' : 'Favicon'} actualizado`);
-      } catch (error) {
+      }
+    } catch (error) {
+      if (Platform.OS === 'web') {
+        alert('Error al actualizar');
+      } else {
         Alert.alert('Error', 'No se pudo actualizar');
       }
     }
@@ -1547,6 +1585,26 @@ export default function AdminPanel() {
           <View>
             <Text style={styles.sectionTitle}>Marca y Diseño</Text>
             
+            {/* Hidden file inputs for web */}
+            {Platform.OS === 'web' && (
+              <>
+                <input
+                  id="logo-input"
+                  type="file"
+                  onChange={(e) => handleBrandingFileChange(e, 'logo')}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                />
+                <input
+                  id="favicon-input"
+                  type="file"
+                  onChange={(e) => handleBrandingFileChange(e, 'favicon')}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                />
+              </>
+            )}
+
             {/* Logo */}
             <View style={styles.brandingCard}>
               <Text style={styles.configTitle}>Logo de la App</Text>
