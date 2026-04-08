@@ -107,24 +107,14 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 # Gift Card Models
-class GiftCardCreate(BaseModel):
-    name: str
-    description: str
-    image_base64: str
-    category: str
-    price_variants: List[float]
-    is_featured: bool = False
-
 class GiftCardResponse(BaseModel):
     id: str
     name: str
-    description: str
-    image_base64: str
-    category: str
-    price_variants: List[float]
-    is_featured: bool
-    is_active: bool
-    created_at: datetime
+    description: Optional[str] = ""
+    image_base64: Optional[str] = None
+    amounts: List[float]
+    is_active: bool = True
+    created_at: Optional[datetime] = None
 
 # Order Models
 class OrderCreate(BaseModel):
@@ -501,64 +491,31 @@ async def get_gift_cards():
         GiftCardResponse(
             id=str(card["_id"]),
             name=card["name"],
-            description=card["description"],
-            image_base64=card["image_base64"],
-            category=card["category"],
-            price_variants=card["price_variants"],
-            is_featured=card["is_featured"],
-            is_active=card["is_active"],
-            created_at=card["created_at"]
+            description=card.get("description", ""),
+            image_base64=card.get("image_base64"),
+            amounts=card.get("amounts", card.get("price_variants", [])),
+            is_active=card.get("is_active", True),
+            created_at=card.get("created_at")
         )
         for card in cards
     ]
 
 @api_router.get("/gift-cards/featured", response_model=List[GiftCardResponse])
 async def get_featured_gift_cards():
-    """Get 6 featured gift cards"""
-    cards = await db.gift_cards.find({"is_active": True, "is_featured": True}).limit(6).to_list(6)
+    """Get 6 featured/active gift cards"""
+    cards = await db.gift_cards.find({"is_active": True}).limit(6).to_list(6)
     return [
         GiftCardResponse(
             id=str(card["_id"]),
             name=card["name"],
-            description=card["description"],
-            image_base64=card["image_base64"],
-            category=card["category"],
-            price_variants=card["price_variants"],
-            is_featured=card["is_featured"],
-            is_active=card["is_active"],
-            created_at=card["created_at"]
+            description=card.get("description", ""),
+            image_base64=card.get("image_base64"),
+            amounts=card.get("amounts", card.get("price_variants", [])),
+            is_active=card.get("is_active", True),
+            created_at=card.get("created_at")
         )
         for card in cards
     ]
-
-@api_router.post("/admin/gift-cards", response_model=GiftCardResponse)
-async def create_gift_card(card_data: GiftCardCreate, verified: bool = Depends(verify_admin_secret)):
-    """Admin: Create a new gift card product"""
-    card_dict = {
-        "name": card_data.name,
-        "description": card_data.description,
-        "image_base64": card_data.image_base64,
-        "category": card_data.category,
-        "price_variants": card_data.price_variants,
-        "is_featured": card_data.is_featured,
-        "is_active": True,
-        "created_at": datetime.utcnow()
-    }
-    
-    result = await db.gift_cards.insert_one(card_dict)
-    card_dict["_id"] = result.inserted_id
-    
-    return GiftCardResponse(
-        id=str(card_dict["_id"]),
-        name=card_dict["name"],
-        description=card_dict["description"],
-        image_base64=card_dict["image_base64"],
-        category=card_dict["category"],
-        price_variants=card_dict["price_variants"],
-        is_featured=card_dict["is_featured"],
-        is_active=card_dict["is_active"],
-        created_at=card_dict["created_at"]
-    )
 
 # ===== ORDER ROUTES =====
 
@@ -1134,9 +1091,9 @@ async def admin_get_gift_cards(verified: bool = Depends(verify_admin_secret)):
             "name": card["name"],
             "description": card.get("description", ""),
             "image_base64": card.get("image_base64"),
-            "amounts": card["amounts"],
+            "amounts": card.get("amounts", card.get("price_variants", [])),
             "is_active": card.get("is_active", True),
-            "created_at": card.get("created_at")
+            "created_at": str(card.get("created_at", "")) if card.get("created_at") else None
         }
         for card in cards
     ]
@@ -1154,9 +1111,17 @@ async def admin_create_gift_card(card_data: GiftCardCreate, verified: bool = Dep
     }
     
     result = await db.gift_cards.insert_one(new_card)
-    new_card["id"] = str(result.inserted_id)
     
-    return {"message": "Gift card created successfully", "card": new_card}
+    return {
+        "message": "Gift card created successfully", 
+        "card": {
+            "id": str(result.inserted_id),
+            "name": new_card["name"],
+            "description": new_card["description"],
+            "amounts": new_card["amounts"],
+            "is_active": new_card["is_active"]
+        }
+    }
 
 @api_router.patch("/admin/gift-cards/{card_id}")
 async def admin_update_gift_card(card_id: str, card_data: GiftCardUpdate, verified: bool = Depends(verify_admin_secret)):

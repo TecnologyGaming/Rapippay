@@ -30,7 +30,9 @@ export default function Payment() {
   const [loading, setLoading] = useState(false);
   const [bankDetails, setBankDetails] = useState<any>(null);
 
+  const orderType = (params.orderType as string) || 'zinli_recharge';
   const zinliAmount = params.zinliAmount as string;
+  const zinliEmail = params.zinliEmail as string;
   const totalCost = params.totalCost as string;
   const paymentMethod = params.paymentMethod as string;
 
@@ -98,42 +100,69 @@ export default function Payment() {
 
   const handleSubmit = async () => {
     if (!referenceNumber) {
-      Alert.alert('Error', 'Por favor ingresa el número de referencia');
+      if (Platform.OS === 'web') {
+        alert('Por favor ingresa el número de referencia');
+      } else {
+        Alert.alert('Error', 'Por favor ingresa el número de referencia');
+      }
       return;
     }
 
     if (!proofImage) {
-      Alert.alert('Error', 'Por favor sube el comprobante de pago');
+      if (Platform.OS === 'web') {
+        alert('Por favor sube el comprobante de pago');
+      } else {
+        Alert.alert('Error', 'Por favor sube el comprobante de pago');
+      }
       return;
     }
 
     setLoading(true);
     try {
+      const orderData: any = {
+        order_type: orderType,
+        payment_method: paymentMethod,
+        reference_number: referenceNumber,
+        payment_proof_image: proofImage,
+      };
+
+      // Add fields based on order type
+      if (orderType === 'zinli_recharge') {
+        orderData.zinli_amount = parseFloat(zinliAmount);
+        orderData.zinli_email = zinliEmail;
+      }
+
       await axios.post(
         `${BACKEND_URL}/api/orders`,
-        {
-          zinli_amount: parseFloat(zinliAmount),
-          payment_method: paymentMethod,
-          reference_number: referenceNumber,
-          payment_proof_image: proofImage,
-        },
+        orderData,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
 
-      Alert.alert(
-        'Éxito',
-        'Tu pedido ha sido enviado. Lo procesaremos pronto.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/(tabs)/orders'),
-          },
-        ]
-      );
+      if (Platform.OS === 'web') {
+        alert('Tu pedido ha sido enviado. Lo procesaremos pronto.');
+        window.location.href = '/orders';
+      } else {
+        Alert.alert(
+          'Éxito',
+          'Tu pedido ha sido enviado. Lo procesaremos pronto.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/(tabs)/orders'),
+            },
+          ]
+        );
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'No se pudo crear el pedido');
+      console.error('Error creating order:', error);
+      const errorMessage = error.response?.data?.detail || 'No se pudo crear el pedido';
+      if (Platform.OS === 'web') {
+        alert('Error: ' + errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     } finally {
       setLoading(false);
     }
