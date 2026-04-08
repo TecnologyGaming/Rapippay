@@ -1381,7 +1381,7 @@ async def ubii_init_transaction(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Ubii Client ID not configured")
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
+        async with httpx.AsyncClient(timeout=15.0) as http_client:
             # Step 1: Check client and get token
             check_response = await http_client.get(
                 f"{UBII_API_BASE}/check_client_id",
@@ -1438,9 +1438,15 @@ async def ubii_init_transaction(current_user: dict = Depends(get_current_user)):
                 "session_id": session_id,
                 "message": "Ubii session initialized"
             }
+    except httpx.TimeoutException as e:
+        logger.error(f"Ubii API timeout: {str(e)}")
+        raise HTTPException(status_code=503, detail="El servidor de Ubii Pago no responde. Por favor intenta más tarde o usa otro método de pago.")
+    except httpx.ConnectError as e:
+        logger.error(f"Ubii API connection error: {str(e)}")
+        raise HTTPException(status_code=503, detail="No se pudo conectar con Ubii Pago. Verifica tu conexión o intenta más tarde.")
     except httpx.RequestError as e:
         logger.error(f"Ubii API error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error connecting to Ubii: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error conectando con Ubii Pago: {str(e)}")
 
 @api_router.post("/ubii/pay")
 async def ubii_process_payment(payment: UbiiPaymentRequest, current_user: dict = Depends(get_current_user)):
