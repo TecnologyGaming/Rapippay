@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,21 +10,46 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
+import Constants from 'expo-constants';
+
+const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
   const { login } = useAuth();
   const router = useRouter();
 
+  useEffect(() => {
+    loadBranding();
+  }, []);
+
+  const loadBranding = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/config`);
+      if (response.data.logo_base64) {
+        setLogoBase64(response.data.logo_base64);
+      }
+    } catch (error) {
+      console.log('Error loading branding:', error);
+    }
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      if (Platform.OS === 'web') {
+        alert('Por favor completa todos los campos');
+      } else {
+        Alert.alert('Error', 'Por favor completa todos los campos');
+      }
       return;
     }
 
@@ -33,7 +58,11 @@ export default function Login() {
       await login(email, password);
       router.replace('/(tabs)/home');
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      if (Platform.OS === 'web') {
+        alert(error.message || 'Error al iniciar sesión');
+      } else {
+        Alert.alert('Error', error.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -46,7 +75,15 @@ export default function Login() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Ionicons name="wallet" size={64} color="#FF5000" />
+          {logoBase64 ? (
+            <Image 
+              source={{ uri: logoBase64 }} 
+              style={styles.logo} 
+              resizeMode="contain" 
+            />
+          ) : (
+            <Ionicons name="wallet" size={64} color="#FF5000" />
+          )}
           <Text style={styles.title}>Zinli Recargas</Text>
           <Text style={styles.subtitle}>Recarga tu cuenta fácil y rápido</Text>
         </View>
@@ -114,6 +151,11 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 48,
+  },
+  logo: {
+    width: 200,
+    height: 80,
+    marginBottom: 8,
   },
   title: {
     fontSize: 32,

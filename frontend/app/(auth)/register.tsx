@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,15 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
+import Constants from 'expo-constants';
+
+const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
 
 export default function Register() {
   const [firstName, setFirstName] = useState('');
@@ -23,28 +28,52 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
   const { register } = useAuth();
   const router = useRouter();
 
+  useEffect(() => {
+    loadBranding();
+  }, []);
+
+  const loadBranding = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/config`);
+      if (response.data.logo_base64) {
+        setLogoBase64(response.data.logo_base64);
+      }
+    } catch (error) {
+      console.log('Error loading branding:', error);
+    }
+  };
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      alert(message);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
   const handleRegister = async () => {
     if (!firstName || !lastName || !email || !phoneNumber || !password || !confirmPassword) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+      showAlert('Error', 'Por favor completa todos los campos');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Las contraseñas no coinciden');
+      showAlert('Error', 'Las contraseñas no coinciden');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
+      showAlert('Error', 'La contraseña debe tener al menos 6 caracteres');
       return;
     }
 
     // Validar formato de teléfono (básico)
     if (phoneNumber.length < 10) {
-      Alert.alert('Error', 'Por favor ingresa un número de teléfono válido');
+      showAlert('Error', 'Por favor ingresa un número de teléfono válido');
       return;
     }
 
@@ -53,7 +82,7 @@ export default function Register() {
       await register(email, password, firstName, lastName, phoneNumber);
       router.replace('/(tabs)/home');
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showAlert('Error', error.message);
     } finally {
       setLoading(false);
     }
@@ -72,7 +101,15 @@ export default function Register() {
           >
             <Ionicons name="arrow-back" size={24} color="#FF5000" />
           </TouchableOpacity>
-          <Ionicons name="person-add" size={64} color="#FF5000" />
+          {logoBase64 ? (
+            <Image 
+              source={{ uri: logoBase64 }} 
+              style={styles.logo} 
+              resizeMode="contain" 
+            />
+          ) : (
+            <Ionicons name="person-add" size={64} color="#FF5000" />
+          )}
           <Text style={styles.title}>Crear Cuenta</Text>
           <Text style={styles.subtitle}>Únete a Zinli Recargas</Text>
         </View>
@@ -196,6 +233,11 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 32,
+  },
+  logo: {
+    width: 180,
+    height: 70,
+    marginBottom: 8,
   },
   title: {
     fontSize: 32,
