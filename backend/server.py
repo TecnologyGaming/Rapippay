@@ -68,7 +68,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Could not validate credentials")
 
 async def get_current_admin(current_user: dict = Depends(get_current_user)):
@@ -579,7 +579,7 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
     order_dict = {
         "user_id": str(current_user["_id"]),
         "user_email": current_user["email"],
-        "user_name": current_user["name"],
+        "user_name": current_user.get("name", f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()),
         "order_type": order_data.order_type,
         "zinli_amount": order_data.zinli_amount,
         "zinli_email": order_data.zinli_email,
@@ -635,7 +635,7 @@ async def get_my_orders(current_user: dict = Depends(get_current_user)):
             user_id=order["user_id"],
             user_email=order["user_email"],
             user_name=order["user_name"],
-            order_type=order["order_type"],
+            order_type=order.get("order_type", "zinli_recharge"),
             zinli_amount=order.get("zinli_amount"),
             zinli_email=order.get("zinli_email"),
             gift_card_id=order.get("gift_card_id"),
@@ -1329,12 +1329,15 @@ UBII_API_BASE = "https://botonc.ubiipagos.com"
 async def get_ubii_config(verified: bool = Depends(verify_admin_secret)):
     """Admin: Get Ubii Pago configuration"""
     config = await db.system_config.find_one({"key": "app_config"})
-    ubii_config = config.get("ubii_config", {
-        "client_id": "55c3c808-163c-11f1-898a-0050568717e3",
-        "client_domain": "",
-        "is_active": False
-    })
-    return ubii_config
+    ubii_config = config.get("ubii_config", {})
+    
+    # Ensure all required fields are present
+    result = {
+        "client_id": ubii_config.get("client_id", "55c3c808-163c-11f1-898a-0050568717e3"),
+        "client_domain": ubii_config.get("client_domain", ""),
+        "is_active": ubii_config.get("is_active", False)
+    }
+    return result
 
 @api_router.patch("/admin/ubii-config")
 async def update_ubii_config(ubii_data: UbiiConfigUpdate, verified: bool = Depends(verify_admin_secret)):

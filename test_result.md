@@ -225,17 +225,17 @@ backend:
           agent: "testing"
           comment: "PATCH /api/admin/config endpoint working correctly. Updates exchange_rate and commission_percent. Requires admin authentication."
 
-  - task: "Admin - Create Banner"
+  - task: "Comprehensive API Testing - All Review Request Endpoints"
     implemented: true
     working: true
     file: "backend/server.py"
     stuck_count: 0
-    priority: "medium"
+    priority: "high"
     needs_retesting: false
     status_history:
         - working: true
           agent: "testing"
-          comment: "POST /api/admin/banners endpoint working correctly. Creates banners with image_base64, link, and order. Requires admin authentication."
+          comment: "COMPREHENSIVE TEST COMPLETED: All 15 backend API endpoints tested with 100% success rate. Fixed critical issues: JWT authentication error (PyJWTError), KeyError for order_type field, missing user name field, and Ubii config missing client_id. All endpoints from review request specifications are working correctly: 1) GET /api/config (System Configuration), 2) POST /api/auth/register (User Registration), 3) POST /api/auth/login (User Login), 4) POST /api/orders (Create Zinli Recharge Order), 5) GET /api/orders (Get User Orders), 6) GET /api/admin/orders (Admin Get All Orders), 7) PATCH /api/admin/orders/{id} (Admin Approve Order), 8) PATCH /api/admin/orders/{id} (Admin Reject Order), 9) GET /api/admin/ubii-config (Get Ubii Config), 10) PATCH /api/admin/ubii-config/toggle (Toggle Ubii), 11) GET /api/banners (Get Banners), 12) POST /api/admin/banners (Create Banner), 13) GET /api/admin/gift-cards (Get Gift Cards), 14) POST /api/admin/gift-cards (Create Gift Card), 15) GET /api/admin/users (Get Users). All validations working: 200/201 responses, admin header authentication (X-Admin-Secret: zinli-admin-2024), order status changes, cost calculations, JWT tokens. Backend API is fully functional and ready for production use."
 
 frontend:
   # No frontend testing performed as per instructions
@@ -255,3 +255,5 @@ test_plan:
 agent_communication:
     - agent: "testing"
       message: "Comprehensive backend API testing completed successfully. All 11 endpoints tested and working correctly. Created backend_test.py for automated testing. All authentication, order management, admin functions, and system configuration APIs are functional. 100% success rate achieved."
+    - agent: "testing"
+      message: "FINAL COMPREHENSIVE TEST COMPLETED: All 15 backend API endpoints tested with 100% success rate. Fixed critical issues: JWT authentication error (PyJWTError), KeyError for order_type field, missing user name field, and Ubii config missing client_id. All endpoints from review request specifications are working correctly including: Auth (register/login), Config, Orders (create/list), Admin (orders/ubii/banners/gift-cards/users). Backend API is fully functional."
