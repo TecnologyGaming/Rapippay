@@ -30,14 +30,27 @@ export default function Payment() {
   const [loading, setLoading] = useState(false);
   const [bankDetails, setBankDetails] = useState<any>(null);
 
+  // Credit Card states (Ubii)
+  const [cardNumber, setCardNumber] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [cvv, setCvv] = useState('');
+  const [cedula, setCedula] = useState('');
+  const [ubiiSessionInitialized, setUbiiSessionInitialized] = useState(false);
+  const [initializingUbii, setInitializingUbii] = useState(false);
+
   const orderType = (params.orderType as string) || 'zinli_recharge';
   const zinliAmount = params.zinliAmount as string;
   const zinliEmail = params.zinliEmail as string;
   const totalCost = params.totalCost as string;
   const paymentMethod = params.paymentMethod as string;
 
+  const isCreditCard = paymentMethod === 'tarjeta_credito';
+
   useEffect(() => {
     loadBankDetails();
+    if (isCreditCard) {
+      initializeUbiiSession();
+    }
   }, []);
 
   const loadBankDetails = async () => {
@@ -47,6 +60,30 @@ export default function Payment() {
       setBankDetails(config.bank_details[paymentMethod]);
     } catch (error) {
       console.error('Error loading bank details:', error);
+    }
+  };
+
+  const initializeUbiiSession = async () => {
+    setInitializingUbii(true);
+    try {
+      const response = await axios.post(
+        `${BACKEND_URL}/api/ubii/init`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (response.data.success) {
+        setUbiiSessionInitialized(true);
+      }
+    } catch (error: any) {
+      console.error('Error initializing Ubii:', error);
+      const errorMsg = error.response?.data?.detail || 'Error al conectar con el procesador de pagos';
+      if (Platform.OS === 'web') {
+        alert(errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    } finally {
+      setInitializingUbii(false);
     }
   };
 
@@ -95,6 +132,128 @@ export default function Payment() {
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'No se pudo seleccionar la imagen');
+    }
+  };
+
+  // Format card number with spaces
+  const formatCardNumber = (text: string) => {
+    const cleaned = text.replace(/\s/g, '').replace(/\D/g, '');
+    const formatted = cleaned.match(/.{1,4}/g)?.join(' ') || cleaned;
+    return formatted.substring(0, 19); // Max 16 digits + 3 spaces
+  };
+
+  // Format expiry date
+  const formatExpiryDate = (text: string) => {
+    const cleaned = text.replace(/\D/g, '');
+    if (cleaned.length >= 2) {
+      return cleaned.substring(0, 2) + '-' + cleaned.substring(2, 4);
+    }
+    return cleaned;
+  };
+
+  const handleCreditCardSubmit = async () => {
+    if (!cardNumber || cardNumber.replace(/\s/g, '').length < 16) {
+      if (Platform.OS === 'web') {
+        alert('Por favor ingresa un número de tarjeta válido');
+      } else {
+        Alert.alert('Error', 'Por favor ingresa un número de tarjeta válido');
+      }
+      return;
+    }
+
+    if (!expiryDate || expiryDate.length < 5) {
+      if (Platform.OS === 'web') {
+        alert('Por favor ingresa la fecha de vencimiento (MM-AA)');
+      } else {
+        Alert.alert('Error', 'Por favor ingresa la fecha de vencimiento (MM-AA)');
+      }
+      return;
+    }
+
+    if (!cvv || cvv.length < 3) {
+      if (Platform.OS === 'web') {
+        alert('Por favor ingresa el CVV');
+      } else {
+        Alert.alert('Error', 'Por favor ingresa el CVV');
+      }
+      return;
+    }
+
+    if (!cedula) {
+      if (Platform.OS === 'web') {
+        alert('Por favor ingresa tu cédula (ej: V12345678)');
+      } else {
+        Alert.alert('Error', 'Por favor ingresa tu cédula (ej: V12345678)');
+      }
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // First create the order
+      const orderData: any = {
+        order_type: orderType,
+        payment_method: 'tarjeta_credito',
+        reference_number: 'UBII-PENDING',
+        payment_proof_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      };
+
+      if (orderType === 'zinli_recharge') {
+        orderData.zinli_amount = parseFloat(zinliAmount);
+        orderData.zinli_email = zinliEmail;
+      }
+
+      const orderResponse = await axios.post(
+        `${BACKEND_URL}/api/orders`,
+        orderData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const orderId = orderResponse.data.id;
+
+      // Process payment with Ubii
+      const paymentResponse = await axios.post(
+        `${BACKEND_URL}/api/ubii/pay`,
+        {
+          order_id: orderId,
+          card_number: cardNumber.replace(/\s/g, ''),
+          expiry_date: expiryDate,
+          cvv: cvv,
+          cedula: cedula.toUpperCase(),
+          amount: parseFloat(totalCost),
+          currency: 'VES'
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (paymentResponse.data.success) {
+        if (Platform.OS === 'web') {
+          alert(`¡Pago aprobado! Referencia: ${paymentResponse.data.reference}`);
+          window.location.href = '/orders';
+        } else {
+          Alert.alert(
+            'Pago Aprobado',
+            `Tu pago ha sido procesado exitosamente.\nReferencia: ${paymentResponse.data.reference}`,
+            [{ text: 'OK', onPress: () => router.replace('/(tabs)/orders') }]
+          );
+        }
+      } else {
+        if (Platform.OS === 'web') {
+          alert(`Pago rechazado: ${paymentResponse.data.description || paymentResponse.data.message}`);
+        } else {
+          Alert.alert('Pago Rechazado', paymentResponse.data.description || paymentResponse.data.message);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error processing payment:', error);
+      const errorMessage = error.response?.data?.detail || 'Error al procesar el pago';
+      if (Platform.OS === 'web') {
+        alert('Error: ' + errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -178,6 +337,8 @@ export default function Payment() {
         return 'Binance Pay';
       case 'paypal':
         return 'PayPal';
+      case 'tarjeta_credito':
+        return 'Tarjeta de Crédito';
       default:
         return paymentMethod;
     }
@@ -264,6 +425,87 @@ export default function Payment() {
     }
   };
 
+  const renderCreditCardForm = () => {
+    if (initializingUbii) {
+      return (
+        <View style={styles.card}>
+          <View style={styles.loadingUbii}>
+            <ActivityIndicator size="large" color="#6C5CE7" />
+            <Text style={styles.loadingUbiiText}>Conectando con procesador de pagos...</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <Ionicons name="card" size={28} color="#6C5CE7" />
+          <Text style={styles.cardTitle}>Datos de la Tarjeta</Text>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Número de Tarjeta</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1234 5678 9012 3456"
+            value={cardNumber}
+            onChangeText={(text) => setCardNumber(formatCardNumber(text))}
+            keyboardType="numeric"
+            maxLength={19}
+            placeholderTextColor="#999"
+          />
+        </View>
+
+        <View style={styles.rowInputs}>
+          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+            <Text style={styles.inputLabel}>Vencimiento (MM-AA)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="12-26"
+              value={expiryDate}
+              onChangeText={(text) => setExpiryDate(formatExpiryDate(text))}
+              keyboardType="numeric"
+              maxLength={5}
+              placeholderTextColor="#999"
+            />
+          </View>
+          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+            <Text style={styles.inputLabel}>CVV</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="123"
+              value={cvv}
+              onChangeText={setCvv}
+              keyboardType="numeric"
+              maxLength={4}
+              secureTextEntry
+              placeholderTextColor="#999"
+            />
+          </View>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Cédula del Titular</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="V12345678"
+            value={cedula}
+            onChangeText={setCedula}
+            autoCapitalize="characters"
+            placeholderTextColor="#999"
+          />
+          <Text style={styles.inputHint}>Formato: V12345678 o E12345678</Text>
+        </View>
+
+        <View style={styles.securityNote}>
+          <Ionicons name="shield-checkmark" size={20} color="#4CAF50" />
+          <Text style={styles.securityText}>Conexión segura - Tus datos están protegidos</Text>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -279,7 +521,7 @@ export default function Payment() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Summary */}
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isCreditCard && { backgroundColor: '#6C5CE7' }]}>
           <Text style={styles.summaryCardTitle}>Resumen del Pedido</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Monto en Zinli:</Text>
@@ -295,65 +537,89 @@ export default function Payment() {
           </View>
         </View>
 
-        {/* Payment Details */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Datos para el Pago</Text>
-          {renderBankDetails()}
-        </View>
+        {isCreditCard ? (
+          <>
+            {renderCreditCardForm()}
 
-        {/* Upload Proof */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Comprobante de Pago</Text>
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={[styles.submitButton, styles.submitButtonUbii, loading && styles.submitButtonDisabled]}
+              onPress={handleCreditCardSubmit}
+              disabled={loading || initializingUbii}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <>
+                  <Ionicons name="lock-closed" size={24} color="#FFF" />
+                  <Text style={styles.submitButtonText}>Pagar Ahora</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {/* Payment Details */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Datos para el Pago</Text>
+              {renderBankDetails()}
+            </View>
 
-          {/* Hidden file input for web */}
-          {Platform.OS === 'web' && (
-            <input
-              id="proof-image-input"
-              type="file"
-              onChange={handleFileChange}
-              accept="image/*"
-              style={{ display: 'none' }}
-            />
-          )}
+            {/* Upload Proof */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Comprobante de Pago</Text>
 
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-            <Ionicons name="cloud-upload" size={32} color="#FF5000" />
-            <Text style={styles.uploadButtonText}>
-              {proofImage ? 'Cambiar imagen' : 'Subir comprobante'}
-            </Text>
-          </TouchableOpacity>
+              {/* Hidden file input for web */}
+              {Platform.OS === 'web' && (
+                <input
+                  id="proof-image-input"
+                  type="file"
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                />
+              )}
 
-          {proofImage && (
-            <Image source={{ uri: proofImage }} style={styles.previewImage} />
-          )}
+              <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                <Ionicons name="cloud-upload" size={32} color="#FF5000" />
+                <Text style={styles.uploadButtonText}>
+                  {proofImage ? 'Cambiar imagen' : 'Subir comprobante'}
+                </Text>
+              </TouchableOpacity>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Número de Referencia</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej: 123456789"
-              value={referenceNumber}
-              onChangeText={setReferenceNumber}
-              placeholderTextColor="#999"
-            />
-          </View>
-        </View>
+              {proofImage && (
+                <Image source={{ uri: proofImage }} style={styles.previewImage} />
+              )}
 
-        {/* Submit Button */}
-        <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <>
-              <Ionicons name="checkmark-circle" size={24} color="#FFF" />
-              <Text style={styles.submitButtonText}>Enviar Pedido</Text>
-            </>
-          )}
-        </TouchableOpacity>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Número de Referencia</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej: 123456789"
+                  value={referenceNumber}
+                  onChangeText={setReferenceNumber}
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={24} color="#FFF" />
+                  <Text style={styles.submitButtonText}>Enviar Pedido</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -408,6 +674,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 12,
   },
   cardTitle: {
     fontSize: 18,
@@ -492,6 +764,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  inputHint: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+  },
+  rowInputs: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
   submitButton: {
     flexDirection: 'row',
     backgroundColor: '#FF5000',
@@ -505,6 +786,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  submitButtonUbii: {
+    backgroundColor: '#6C5CE7',
+    shadowColor: '#6C5CE7',
+  },
   submitButtonDisabled: {
     opacity: 0.6,
   },
@@ -513,5 +798,28 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFF',
     marginLeft: 8,
+  },
+  loadingUbii: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingUbiiText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#666',
+  },
+  securityNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    gap: 8,
+  },
+  securityText: {
+    fontSize: 12,
+    color: '#4CAF50',
+    flex: 1,
   },
 });

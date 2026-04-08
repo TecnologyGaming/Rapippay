@@ -14,6 +14,11 @@ from passlib.context import CryptContext
 import jwt
 from bson import ObjectId
 import base64
+import httpx
+import json
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+import hashlib
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -181,6 +186,7 @@ class SystemConfigResponse(BaseModel):
     contact_info: Optional[dict] = None
     social_networks: Optional[List[dict]] = None
     payment_methods: Optional[List[dict]] = None
+    ubii_config: Optional[dict] = None
 
 class SystemConfigUpdate(BaseModel):
     exchange_rate: Optional[float] = None
@@ -236,6 +242,21 @@ class PushNotificationSend(BaseModel):
     user_ids: Optional[List[str]] = None
     data: Optional[dict] = None
 
+# Ubii Pago Models
+class UbiiConfigUpdate(BaseModel):
+    client_id: str
+    client_domain: str
+    is_active: bool = True
+
+class UbiiPaymentRequest(BaseModel):
+    order_id: str
+    card_number: str
+    expiry_date: str  # MM-YY format
+    cvv: str
+    cedula: str  # Format: V12345678 or E12345678
+    amount: float
+    currency: str = "VES"  # VES or USD
+
 # ===== INITIALIZE DEFAULT DATA =====
 
 async def init_system_config():
@@ -283,6 +304,11 @@ async def init_system_config():
                 {"id": "pm_3", "name": "Binance Pay", "logo_base64": None, "fields": {"email": "zinli@gmail.com", "user_id": "123456789"}, "is_active": True},
                 {"id": "pm_4", "name": "PayPal", "logo_base64": None, "fields": {"email": "payments@zinli.com"}, "is_active": True}
             ],
+            "ubii_config": {
+                "client_id": "55c3c808-163c-11f1-898a-0050568717e3",
+                "client_domain": "",
+                "is_active": False
+            },
             "created_at": datetime.utcnow()
         }
         await db.system_config.insert_one(default_config)
@@ -878,7 +904,8 @@ async def get_system_config():
         favicon_base64=config.get("favicon_base64"),
         contact_info=config.get("contact_info"),
         social_networks=config.get("social_networks", []),
-        payment_methods=config.get("payment_methods", [])
+        payment_methods=config.get("payment_methods", []),
+        ubii_config=config.get("ubii_config", {"client_id": "", "client_domain": "", "is_active": False})
     )
 
 @api_router.patch("/admin/config", response_model=SystemConfigResponse)
@@ -1293,6 +1320,268 @@ async def admin_get_notification_history(verified: bool = Depends(verify_admin_s
         }
         for n in notifications
     ]
+
+# ===== UBII PAGO INTEGRATION =====
+
+UBII_API_BASE = "https://botonc.ubiipagos.com"
+
+@api_router.get("/admin/ubii-config")
+async def get_ubii_config(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get Ubii Pago configuration"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    ubii_config = config.get("ubii_config", {
+        "client_id": "55c3c808-163c-11f1-898a-0050568717e3",
+        "client_domain": "",
+        "is_active": False
+    })
+    return ubii_config
+
+@api_router.patch("/admin/ubii-config")
+async def update_ubii_config(ubii_data: UbiiConfigUpdate, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update Ubii Pago configuration"""
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": {"ubii_config": {
+            "client_id": ubii_data.client_id,
+            "client_domain": ubii_data.client_domain,
+            "is_active": ubii_data.is_active
+        }}}
+    )
+    return {"message": "Ubii config updated successfully"}
+
+@api_router.patch("/admin/ubii-config/toggle")
+async def toggle_ubii_config(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Toggle Ubii Pago active status"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    ubii_config = config.get("ubii_config", {"is_active": False})
+    new_status = not ubii_config.get("is_active", False)
+    
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": {"ubii_config.is_active": new_status}}
+    )
+    return {"message": f"Ubii {'activated' if new_status else 'deactivated'}", "is_active": new_status}
+
+@api_router.post("/ubii/init")
+async def ubii_init_transaction(current_user: dict = Depends(get_current_user)):
+    """Initialize Ubii transaction - Get token and encryption keys"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    ubii_config = config.get("ubii_config", {})
+    
+    if not ubii_config.get("is_active"):
+        raise HTTPException(status_code=400, detail="Ubii Pago is not active")
+    
+    client_id = ubii_config.get("client_id")
+    client_domain = ubii_config.get("client_domain", "")
+    
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Ubii Client ID not configured")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            # Step 1: Check client and get token
+            check_response = await http_client.get(
+                f"{UBII_API_BASE}/check_client_id",
+                headers={
+                    "X-CLIENT-ID": client_id,
+                    "X-CLIENT-DOMAIN": client_domain,
+                    "Content-Type": "application/json"
+                }
+            )
+            check_data = check_response.json()
+            
+            if check_data.get("R") != "0":
+                raise HTTPException(
+                    status_code=400, 
+                    detail=check_data.get("MS", "Error validating with Ubii")
+                )
+            
+            token = check_data.get("token")
+            
+            # Step 2: Get API keys
+            keys_response = await http_client.get(
+                f"{UBII_API_BASE}/get_keys",
+                headers={
+                    "X-CLIENT-ID": client_id,
+                    "Authorization": token,
+                    "Content-Type": "application/json"
+                }
+            )
+            keys_data = keys_response.json()
+            
+            if keys_data.get("R") != "0":
+                raise HTTPException(
+                    status_code=400,
+                    detail=keys_data.get("MS", "Error getting Ubii keys")
+                )
+            
+            # Store session for this user
+            session_id = str(uuid.uuid4())
+            await db.ubii_sessions.update_one(
+                {"user_id": str(current_user["_id"])},
+                {"$set": {
+                    "user_id": str(current_user["_id"]),
+                    "token": token,
+                    "keys": keys_data,
+                    "client_id": client_id,
+                    "created_at": datetime.utcnow(),
+                    "expires_at": datetime.utcnow() + timedelta(minutes=14)
+                }},
+                upsert=True
+            )
+            
+            return {
+                "success": True,
+                "session_id": session_id,
+                "message": "Ubii session initialized"
+            }
+    except httpx.RequestError as e:
+        logger.error(f"Ubii API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error connecting to Ubii: {str(e)}")
+
+@api_router.post("/ubii/pay")
+async def ubii_process_payment(payment: UbiiPaymentRequest, current_user: dict = Depends(get_current_user)):
+    """Process credit card payment through Ubii Pago"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    ubii_config = config.get("ubii_config", {})
+    
+    if not ubii_config.get("is_active"):
+        raise HTTPException(status_code=400, detail="Ubii Pago is not active")
+    
+    # Get stored session
+    session = await db.ubii_sessions.find_one({
+        "user_id": str(current_user["_id"]),
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    
+    if not session:
+        raise HTTPException(status_code=400, detail="Session expired. Please initialize again.")
+    
+    # Get the TDC API key from stored keys
+    keys = session.get("keys", {})
+    tdc_key = None
+    for key_item in keys.get("content", []):
+        if key_item.get("method") == "TDC":
+            tdc_key = key_item.get("api_key")
+            break
+    
+    if not tdc_key:
+        raise HTTPException(status_code=400, detail="TDC payment method not available")
+    
+    # Generate unique order number
+    order_number = f"ZNL-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as http_client:
+            # Build payment payload
+            payment_body = {
+                "bwa": "Web",
+                "manu": "Generic",
+                "model": "Browser",
+                "OSV": "Web",
+                "lat": "0",
+                "long": "0",
+                "crdn": payment.card_number.replace(" ", "").replace("-", ""),
+                "ci": payment.cedula,
+                "fexp": payment.expiry_date,
+                "cvv": payment.cvv,
+                "m": str(payment.amount),
+                "cu": payment.currency,
+                "order": order_number,
+                "ip": "0.0.0.0"
+            }
+            
+            # Make payment request
+            pay_response = await http_client.post(
+                f"{UBII_API_BASE}/payment_tde",
+                json=payment_body,
+                headers={
+                    "X-CLIENT-ID": session.get("client_id"),
+                    "X-API-KEY": tdc_key,
+                    "X-CLIENT-CHANNEL": "BTN-API",
+                    "Authorization": session.get("token"),
+                    "Content-Type": "application/json"
+                }
+            )
+            pay_data = pay_response.json()
+            
+            # Log transaction
+            await db.ubii_transactions.insert_one({
+                "user_id": str(current_user["_id"]),
+                "order_id": payment.order_id,
+                "order_number": order_number,
+                "amount": payment.amount,
+                "currency": payment.currency,
+                "response": pay_data,
+                "status": "approved" if pay_data.get("R") == "0" else "rejected",
+                "created_at": datetime.utcnow()
+            })
+            
+            if pay_data.get("R") == "0":
+                # Update order status if successful
+                if payment.order_id:
+                    await db.orders.update_one(
+                        {"_id": ObjectId(payment.order_id)},
+                        {"$set": {
+                            "ubii_reference": pay_data.get("ref"),
+                            "ubii_trace": pay_data.get("trace"),
+                            "reference_number": pay_data.get("ref", order_number),
+                            "payment_verified": True,
+                            "updated_at": datetime.utcnow()
+                        }}
+                    )
+                
+                return {
+                    "success": True,
+                    "message": "Pago aprobado",
+                    "reference": pay_data.get("ref"),
+                    "trace": pay_data.get("trace"),
+                    "code": pay_data.get("codR"),
+                    "description": pay_data.get("codS")
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": pay_data.get("M", "Pago rechazado"),
+                    "code": pay_data.get("codR"),
+                    "description": pay_data.get("codS", pay_data.get("MS", "Error en la transacción"))
+                }
+                
+    except httpx.RequestError as e:
+        logger.error(f"Ubii payment error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing payment: {str(e)}")
+
+@api_router.get("/ubii/verify/{order_number}")
+async def ubii_verify_payment(order_number: str, current_user: dict = Depends(get_current_user)):
+    """Verify a payment status with Ubii"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    ubii_config = config.get("ubii_config", {})
+    
+    if not ubii_config.get("is_active"):
+        raise HTTPException(status_code=400, detail="Ubii Pago is not active")
+    
+    session = await db.ubii_sessions.find_one({
+        "user_id": str(current_user["_id"]),
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    
+    if not session:
+        raise HTTPException(status_code=400, detail="Session expired")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            verify_response = await http_client.get(
+                f"{UBII_API_BASE}/get_check_order",
+                params={"Order": order_number},
+                headers={
+                    "X-CLIENT-ID": session.get("client_id"),
+                    "Authorization": session.get("token"),
+                    "Content-Type": "application/json"
+                }
+            )
+            return verify_response.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Error verifying payment: {str(e)}")
 
 # Include router
 app.include_router(api_router)

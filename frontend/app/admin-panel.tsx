@@ -153,6 +153,14 @@ export default function AdminPanel() {
   const [pushSending, setPushSending] = useState(false);
   const [totalDevices, setTotalDevices] = useState(0);
 
+  // Ubii Pago states
+  const [ubiiConfig, setUbiiConfig] = useState({
+    client_id: '55c3c808-163c-11f1-898a-0050568717e3',
+    client_domain: '',
+    is_active: false
+  });
+  const [ubiiSaving, setUbiiSaving] = useState(false);
+
   useEffect(() => {
     checkSession();
   }, []);
@@ -218,6 +226,11 @@ export default function AdminPanel() {
       // Payment methods (NEW)
       if (configRes.data.payment_methods) {
         setPaymentMethods(configRes.data.payment_methods);
+      }
+      
+      // Ubii config
+      if (configRes.data.ubii_config) {
+        setUbiiConfig(configRes.data.ubii_config);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -747,6 +760,53 @@ export default function AdminPanel() {
       Alert.alert('Error', 'No se pudo enviar la notificación');
     } finally {
       setPushSending(false);
+    }
+  };
+
+  // ===== UBII PAGO FUNCTIONS =====
+  const handleToggleUbii = async () => {
+    try {
+      const res = await axios.patch(
+        `${BACKEND_URL}/api/admin/ubii-config/toggle`,
+        {},
+        { headers: ADMIN_HEADERS }
+      );
+      setUbiiConfig(prev => ({ ...prev, is_active: res.data.is_active }));
+      if (Platform.OS === 'web') {
+        alert(`Tarjeta de Crédito (Ubii) ${res.data.is_active ? 'activada' : 'desactivada'}`);
+      } else {
+        Alert.alert('Éxito', `Tarjeta de Crédito (Ubii) ${res.data.is_active ? 'activada' : 'desactivada'}`);
+      }
+    } catch (error) {
+      if (Platform.OS === 'web') {
+        alert('Error al cambiar estado de Ubii');
+      } else {
+        Alert.alert('Error', 'No se pudo cambiar el estado');
+      }
+    }
+  };
+
+  const handleSaveUbiiConfig = async () => {
+    setUbiiSaving(true);
+    try {
+      await axios.patch(
+        `${BACKEND_URL}/api/admin/ubii-config`,
+        ubiiConfig,
+        { headers: ADMIN_HEADERS }
+      );
+      if (Platform.OS === 'web') {
+        alert('Configuración de Ubii guardada correctamente');
+      } else {
+        Alert.alert('Éxito', 'Configuración de Ubii guardada correctamente');
+      }
+    } catch (error) {
+      if (Platform.OS === 'web') {
+        alert('Error al guardar configuración de Ubii');
+      } else {
+        Alert.alert('Error', 'No se pudo guardar la configuración');
+      }
+    } finally {
+      setUbiiSaving(false);
     }
   };
 
@@ -1407,6 +1467,78 @@ export default function AdminPanel() {
                 </View>
               ))
             )}
+
+            {/* ===== UBII PAGO (TARJETA DE CRÉDITO) SECTION ===== */}
+            <View style={styles.ubiiCard}>
+              <View style={styles.ubiiHeader}>
+                <View style={styles.ubiiTitleRow}>
+                  <Ionicons name="card" size={28} color="#6C5CE7" />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.ubiiTitle}>Tarjeta de Crédito (Ubii Pago)</Text>
+                    <Text style={styles.ubiiSubtitle}>Pasarela de pago automático con TDC</Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  style={[styles.ubiiToggle, ubiiConfig.is_active && styles.ubiiToggleActive]}
+                  onPress={handleToggleUbii}
+                >
+                  <Text style={[styles.ubiiToggleText, ubiiConfig.is_active && styles.ubiiToggleTextActive]}>
+                    {ubiiConfig.is_active ? 'Activo' : 'Inactivo'}
+                  </Text>
+                  <Ionicons 
+                    name={ubiiConfig.is_active ? 'checkmark-circle' : 'close-circle'} 
+                    size={20} 
+                    color={ubiiConfig.is_active ? '#FFF' : '#666'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.ubiiConfigSection}>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Client ID (Ubii):</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Tu Client ID de Ubii Pago"
+                    value={ubiiConfig.client_id}
+                    onChangeText={(t) => setUbiiConfig({...ubiiConfig, client_id: t})}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Dominio del Comercio (opcional):</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="tudominio.com"
+                    value={ubiiConfig.client_domain}
+                    onChangeText={(t) => setUbiiConfig({...ubiiConfig, client_domain: t})}
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.saveButton, ubiiSaving && { opacity: 0.6 }]} 
+                  onPress={handleSaveUbiiConfig}
+                  disabled={ubiiSaving}
+                >
+                  {ubiiSaving ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="save" size={20} color="#FFF" />
+                      <Text style={styles.saveButtonText}>Guardar Configuración Ubii</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.ubiiInfo}>
+                <Ionicons name="information-circle" size={18} color="#6C5CE7" />
+                <Text style={styles.ubiiInfoText}>
+                  Cuando está activo, los usuarios podrán pagar con tarjeta de crédito de forma automática a través de Ubii Pago.
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -2744,5 +2876,79 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#999',
     marginTop: 8,
+  },
+  // Ubii Pago styles
+  ubiiCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 24,
+    borderWidth: 2,
+    borderColor: '#6C5CE7',
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  ubiiHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  ubiiTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  ubiiTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  ubiiSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  ubiiToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    gap: 6,
+  },
+  ubiiToggleActive: {
+    backgroundColor: '#6C5CE7',
+  },
+  ubiiToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  ubiiToggleTextActive: {
+    color: '#FFF',
+  },
+  ubiiConfigSection: {
+    marginBottom: 16,
+  },
+  ubiiInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F5F3FF',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  ubiiInfoText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#6C5CE7',
+    lineHeight: 18,
   },
 });

@@ -31,6 +31,11 @@ interface SystemConfig {
   exchange_rate: number;
   commission_percent: number;
   bank_details: any;
+  ubii_config?: {
+    client_id: string;
+    client_domain: string;
+    is_active: boolean;
+  };
 }
 
 export default function Home() {
@@ -273,6 +278,18 @@ export default function Home() {
           <Text style={styles.paymentButtonText}>PayPal</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
+
+        {/* Tarjeta de Crédito (Ubii) - Solo si está activo */}
+        {config?.ubii_config?.is_active && (
+          <TouchableOpacity
+            style={[styles.paymentButton, { borderColor: '#6C5CE7', borderWidth: 2 }]}
+            onPress={() => handlePaymentSelect('tarjeta_credito')}
+          >
+            <Ionicons name="card" size={24} color="#6C5CE7" />
+            <Text style={[styles.paymentButtonText, { color: '#6C5CE7' }]}>Tarjeta de Crédito</Text>
+            <Ionicons name="chevron-forward" size={20} color="#6C5CE7" />
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
