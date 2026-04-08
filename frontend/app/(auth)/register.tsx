@@ -235,9 +235,9 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logo: {
-    width: 240,
-    height: 100,
-    marginBottom: 16,
+    width: '100%',
+    height: 200,
+    marginBottom: 24,
   },
   title: {
     fontSize: 32,

@@ -82,10 +82,12 @@ export default function Login() {
               resizeMode="contain" 
             />
           ) : (
-            <Ionicons name="wallet" size={64} color="#FF5000" />
+            <>
+              <Ionicons name="wallet" size={64} color="#FF5000" />
+              <Text style={styles.title}>Zinli Recargas</Text>
+              <Text style={styles.subtitle}>Recarga tu cuenta fácil y rápido</Text>
+            </>
           )}
-          <Text style={styles.title}>Zinli Recargas</Text>
-          <Text style={styles.subtitle}>Recarga tu cuenta fácil y rápido</Text>
         </View>
 
         <View style={styles.form}>
@@ -153,9 +155,9 @@ const styles = StyleSheet.create({
     marginBottom: 48,
   },
   logo: {
-    width: 280,
-    height: 120,
-    marginBottom: 16,
+    width: '100%',
+    height: 220,
+    marginBottom: 24,
   },
   title: {
     fontSize: 32,
