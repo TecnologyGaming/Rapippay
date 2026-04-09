@@ -6,10 +6,13 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 # Copy package files
-COPY package.json yarn.lock ./
+COPY package.json ./
+COPY yarn.lock* package-lock.json* ./
 
 # Install dependencies
-RUN yarn install --frozen-lockfile
+RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then npm ci; \
+    else npm install; fi
 
 # Copy application code
 COPY . .
