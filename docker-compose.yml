@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: zinli-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=zinli_recargas
+    networks:
+      - zinli-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zinli-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017/zinli_recargas
+      - JWT_SECRET=zinli-secret-key-2024-production
+      - ADMIN_SECRET=zinli-admin-2024
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - zinli-network
+    volumes:
+      - ./backend:/app
+    healthcheck:
+      test: curl -f http://localhost:8001/api/config || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Expo Frontend (Production Build)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: zinli-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - EXPO_PUBLIC_BACKEND_URL=http://backend:8001
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - zinli-network
+
+  # Nginx Reverse Proxy (Optional - for production)
+  nginx:
+    image: nginx:alpine
+    container_name: zinli-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - zinli-network
+    profiles:
+      - production
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  zinli-network:
+    driver: bridge
