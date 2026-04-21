@@ -24,10 +24,9 @@ interface GiftCard {
   id: string;
   name: string;
   description: string;
-  image_base64: string;
-  category: string;
-  price_variants: number[];
-  is_featured: boolean;
+  image_base64: string | null;
+  amounts: number[];
+  is_active: boolean;
 }
 
 export default function Store() {
@@ -71,8 +70,8 @@ export default function Store() {
         id: card.id,
         name: card.name,
         description: card.description,
-        image: card.image_base64,
-        priceVariants: JSON.stringify(card.price_variants),
+        image: card.image_base64 || '',
+        amounts: JSON.stringify(card.amounts || []),
       },
     });
   };
@@ -83,18 +82,24 @@ export default function Store() {
       onPress={() => handleCardPress(item)}
     >
       <View style={styles.cardImageContainer}>
-        <Image
-          source={{ uri: item.image_base64 }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
+        {item.image_base64 ? (
+          <Image
+            source={{ uri: item.image_base64 }}
+            style={styles.cardImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.cardImage, { backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="gift" size={40} color="#CCC" />
+          </View>
+        )}
       </View>
       <View style={styles.cardContent}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.cardCategory} numberOfLines={1}>{item.category}</Text>
+        <Text style={styles.cardCategory} numberOfLines={1}>{item.description}</Text>
         <View style={styles.priceRange}>
           <Text style={styles.priceText}>
-            ${Math.min(...item.price_variants)} - ${Math.max(...item.price_variants)}
+            ${Math.min(...(item.amounts || [0]))} - ${Math.max(...(item.amounts || [0]))}
           </Text>
         </View>
       </View>
