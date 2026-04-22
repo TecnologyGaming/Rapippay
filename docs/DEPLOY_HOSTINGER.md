@@ -1,186 +1,129 @@
 # 🚀 Guía de Despliegue en Hostinger VPS
 
-## Paso 1: Preparar el VPS
+## ⚠️ IMPORTANTE: Configurar URL del Backend
 
-### Conectar por SSH
+Antes de hacer deploy, **DEBES** editar el archivo `docker-compose.yml` y cambiar la URL del backend por la de tu servidor:
+
+```yaml
+frontend:
+  build:
+    args:
+      - EXPO_PUBLIC_BACKEND_URL=http://TU-DOMINIO-O-IP:8001
+```
+
+**Ejemplo:**
+- Si tu servidor es `srv1569869.hstgr.cloud`, usa:
+  ```yaml
+  - EXPO_PUBLIC_BACKEND_URL=http://srv1569869.hstgr.cloud:8001
+  ```
+
+## Paso 1: Conectar al VPS
+
 ```bash
 ssh root@TU_IP_DEL_VPS
 ```
 
-### Instalar Docker (si no está instalado)
+## Paso 2: Instalar Docker (si no está instalado)
+
 ```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
+curl -fsSL https://get.docker.com | sh
 ```
 
-### Instalar Docker Compose
-```bash
-apt-get update
-apt-get install -y docker-compose-plugin
-```
+## Paso 3: Clonar el repositorio
 
-## Paso 2: Descargar el proyecto
-
-### Opción A: Clonar desde GitHub
 ```bash
 cd /docker
 git clone https://github.com/TecnologyGaming/Rapippay.git rapippay
 cd rapippay
 ```
 
-### Opción B: Subir archivos manualmente
-Si el repositorio no tiene todos los archivos, sube manualmente:
-- `docker-compose.yml`
-- `backend/Dockerfile`
-- `backend/server.py`
-- `backend/requirements.txt`
-- `backend/.env`
-- `frontend/` (toda la carpeta)
-
-## Paso 3: Configurar variables de entorno
-
-### Backend (.env)
-```bash
-nano /docker/rapippay/backend/.env
-```
-
-Contenido:
-```env
-MONGO_URL=mongodb://mongodb:27017
-DB_NAME=zinli_recargas
-```
-
-## Paso 4: Iniciar los contenedores
+## Paso 4: ⚠️ EDITAR docker-compose.yml
 
 ```bash
-cd /docker/rapippay
+nano docker-compose.yml
+```
+
+Busca esta línea:
+```yaml
+- EXPO_PUBLIC_BACKEND_URL=http://srv1569869.hstgr.cloud:8001
+```
+
+**Cámbiala por tu dominio o IP real:**
+```yaml
+- EXPO_PUBLIC_BACKEND_URL=http://TU-DOMINIO:8001
+```
+
+Guarda con `Ctrl+O`, `Enter`, `Ctrl+X`
+
+## Paso 5: Levantar los contenedores
+
+```bash
 docker compose up -d --build
 ```
 
-## Paso 5: Verificar que todo funciona
+## Paso 6: Verificar
 
 ```bash
-# Ver estado de contenedores
 docker compose ps
-
-# Ver logs en tiempo real
-docker compose logs -f
-
-# Probar el backend
-curl http://localhost:8001/api/config
 ```
 
-## Paso 6: Configurar dominio (opcional)
+Todos los servicios deben estar "Up" y "healthy".
 
-### Con Nginx como proxy reverso
+## URLs de acceso
 
-1. Instalar Nginx:
-```bash
-apt-get install nginx
-```
+| Servicio | URL |
+|----------|-----|
+| **App** | `http://TU-DOMINIO:3001` |
+| **Admin** | `http://TU-DOMINIO:3001/admin` |
+| **API** | `http://TU-DOMINIO:8001` |
 
-2. Crear configuración:
-```bash
-nano /etc/nginx/sites-available/rapippay
-```
+## Credenciales Admin
 
-```nginx
-server {
-    listen 80;
-    server_name tudominio.com;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    location /api {
-        proxy_pass http://localhost:8001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-3. Activar y reiniciar:
-```bash
-ln -s /etc/nginx/sites-available/rapippay /etc/nginx/sites-enabled/
-nginx -t
-systemctl restart nginx
-```
-
-### Instalar SSL con Certbot
-```bash
-apt-get install certbot python3-certbot-nginx
-certbot --nginx -d tudominio.com
-```
-
-## Comandos útiles
-
-| Comando | Descripción |
-|---------|-------------|
-| `docker compose ps` | Ver estado de contenedores |
-| `docker compose logs -f` | Ver logs en tiempo real |
-| `docker compose logs backend` | Ver solo logs del backend |
-| `docker compose restart` | Reiniciar todos los servicios |
-| `docker compose down` | Detener todo |
-| `docker compose up -d --build` | Reconstruir e iniciar |
-| `docker compose exec backend bash` | Entrar al contenedor del backend |
-| `docker compose exec mongodb mongosh` | Conectar a MongoDB |
-
-## Solución de problemas
-
-### El backend no inicia
-```bash
-# Ver logs del backend
-docker compose logs backend
-
-# Verificar que MongoDB esté corriendo
-docker compose ps mongodb
-```
-
-### Error de conexión a MongoDB
-```bash
-# Reiniciar MongoDB
-docker compose restart mongodb
-
-# Esperar 10 segundos y reiniciar backend
-sleep 10
-docker compose restart backend
-```
-
-### El frontend no carga
-```bash
-# Reconstruir frontend
-docker compose build frontend
-docker compose up -d frontend
-```
-
-### Limpiar todo y empezar de nuevo
-```bash
-docker compose down -v
-docker compose up -d --build
-```
-
-## Puertos utilizados
-
-| Puerto | Servicio |
-|--------|----------|
-| 3000 | Frontend (Expo Web) |
-| 8001 | Backend (FastAPI) |
-| 27017 | MongoDB |
-
-Asegúrate de que estos puertos estén abiertos en el firewall de Hostinger.
-
-## Credenciales por defecto
-
-- **Admin Panel URL:** `/admin`
 - **Usuario:** `admin`
 - **Contraseña:** `admin123`
 
-⚠️ **IMPORTANTE:** Cambia las credenciales en producción.
+## Comandos útiles
+
+```bash
+# Ver logs
+docker compose logs -f
+
+# Ver solo logs del backend
+docker compose logs -f backend
+
+# Reiniciar todo
+docker compose restart
+
+# Reconstruir después de cambios
+docker compose up -d --build
+
+# Detener todo
+docker compose down
+```
+
+## Solución de problemas
+
+### El frontend carga pero se queda en blanco después del login
+**Causa:** La URL del backend está mal configurada.
+**Solución:** 
+1. Edita `docker-compose.yml`
+2. Cambia `EXPO_PUBLIC_BACKEND_URL` por tu dominio real
+3. Ejecuta: `docker compose up -d --build`
+
+### El backend no arranca
+```bash
+docker compose logs backend
+```
+
+### MongoDB no arranca
+```bash
+docker compose logs mongodb
+```
+
+## Abrir puertos en firewall
+
+Si usas UFW:
+```bash
+ufw allow 3001
+ufw allow 8001
+```

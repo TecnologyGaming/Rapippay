@@ -49,12 +49,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - EXPO_PUBLIC_BACKEND_URL=http://srv1569869.hstgr.cloud:8001
     container_name: zinli-frontend
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
-      - EXPO_PUBLIC_BACKEND_URL=http://backend:8001
       - NODE_ENV=production
       - PORT=3001
     depends_on:

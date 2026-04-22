@@ -2,8 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Build argument for backend URL
+ARG EXPO_PUBLIC_BACKEND_URL=http://localhost:8001
+ENV EXPO_PUBLIC_BACKEND_URL=$EXPO_PUBLIC_BACKEND_URL
+
 # Install system dependencies
-RUN apk add --no-cache git
+RUN apk add --no-cache git curl
 
 # Copy package files
 COPY package.json ./
@@ -16,6 +20,9 @@ RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
 
 # Copy application code
 COPY . .
+
+# Create .env file with backend URL
+RUN echo "EXPO_PUBLIC_BACKEND_URL=$EXPO_PUBLIC_BACKEND_URL" > .env
 
 # Build for web
 RUN npx expo export --platform web
