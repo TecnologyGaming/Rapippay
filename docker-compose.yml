@@ -52,14 +52,20 @@ services:
     container_name: zinli-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3001"
     environment:
       - EXPO_PUBLIC_BACKEND_URL=http://backend:8001
       - NODE_ENV=production
+      - PORT=3001
     depends_on:
       - backend
     networks:
       - zinli-network
+    healthcheck:
+      test: curl -f http://localhost:3001 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Nginx Reverse Proxy (Optional - for production)
   nginx:

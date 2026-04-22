@@ -24,7 +24,7 @@ RUN npx expo export --platform web
 RUN npm install -g serve
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3001
 
 # Serve the built web app
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["serve", "-s", "dist", "-l", "3001"]
