@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 
 const BACKEND_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
-const ADMIN_HEADERS = { 'X-Admin-Secret': 'zinli-admin-2024' };
+const ADMIN_HEADERS = { 'x-admin-secret': 'zinli-admin-2024' };
 
 interface Order {
   id: string;
