@@ -22,7 +22,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, firstName: string, lastName: string, phoneNumber: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser: (userData: Partial<User>) => Promise<void>;
@@ -70,16 +70,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(access_token);
       setUser(userData);
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Login failed');
+      // Handle validation errors properly
+      const errorDetail = error.response?.data?.detail;
+      let errorMessage = 'Error al iniciar sesión';
+      
+      if (typeof errorDetail === 'string') {
+        errorMessage = errorDetail;
+      } else if (Array.isArray(errorDetail)) {
+        errorMessage = errorDetail.map((e: any) => e.msg || e.message || String(e)).join(', ');
+      } else if (errorDetail && typeof errorDetail === 'object') {
+        errorMessage = JSON.stringify(errorDetail);
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
-  const register = async (email: string, password: string, name: string) => {
+  const register = async (email: string, password: string, firstName: string, lastName: string, phoneNumber: string) => {
     try {
       const response = await axios.post(`${BACKEND_URL}/api/auth/register`, {
         email,
         password,
-        name
+        first_name: firstName,
+        last_name: lastName,
+        phone_number: phoneNumber
       });
 
       const { access_token, user: userData } = response.data;
@@ -90,7 +104,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(access_token);
       setUser(userData);
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Registration failed');
+      // Handle validation errors properly
+      const errorDetail = error.response?.data?.detail;
+      let errorMessage = 'Error en el registro';
+      
+      if (typeof errorDetail === 'string') {
+        errorMessage = errorDetail;
+      } else if (Array.isArray(errorDetail)) {
+        // Pydantic validation errors come as array
+        errorMessage = errorDetail.map((e: any) => e.msg || e.message || String(e)).join(', ');
+      } else if (errorDetail && typeof errorDetail === 'object') {
+        errorMessage = JSON.stringify(errorDetail);
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
