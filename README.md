@@ -157,3 +157,4 @@ certbot --nginx -d tudominio.com
 ## 📞 Soporte
 
 Documentación adicional en `docs/DEPLOY_HOSTINGER.md`
+# Balance management update Thu Apr 30 06:25:47 UTC 2026
