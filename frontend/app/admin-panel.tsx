@@ -112,6 +112,9 @@ export default function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [resetPasswordModal, setResetPasswordModal] = useState<User | null>(null);
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [balanceModal, setBalanceModal] = useState<User | null>(null);
+  const [balanceAmount, setBalanceAmount] = useState('');
+  const [balanceAction, setBalanceAction] = useState<'add' | 'subtract'>('add');
   
   // Banners management states
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -299,6 +302,36 @@ export default function AdminPanel() {
       setNewUserPassword('');
     } catch (error) {
       Alert.alert('Error', 'No se pudo restablecer la contraseña');
+    }
+  };
+
+  // Update user balance
+  const handleUpdateBalance = async () => {
+    if (!balanceModal || !balanceAmount) {
+      Alert.alert('Error', 'Ingresa un monto válido');
+      return;
+    }
+    const amount = parseFloat(balanceAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert('Error', 'El monto debe ser mayor a 0');
+      return;
+    }
+    try {
+      const response = await axios.patch(
+        `${BACKEND_URL}/api/admin/users/${balanceModal.id}/balance`,
+        { action: balanceAction, amount: amount },
+        { headers: ADMIN_HEADERS }
+      );
+      Alert.alert(
+        'Éxito', 
+        `Saldo ${balanceAction === 'add' ? 'agregado' : 'restado'} correctamente.\nNuevo saldo: $${response.data.new_balance.toFixed(2)}`
+      );
+      setBalanceModal(null);
+      setBalanceAmount('');
+      setBalanceAction('add');
+      loadUsers();
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'No se pudo actualizar el saldo');
     }
   };
 
@@ -1331,6 +1364,20 @@ export default function AdminPanel() {
                     </View>
                   </View>
                   
+                  {/* Balance Display */}
+                  <View style={styles.balanceDisplay}>
+                    <Ionicons name="wallet" size={20} color="#FF5000" />
+                    <Text style={styles.balanceLabel}>Saldo:</Text>
+                    <Text style={styles.balanceAmount}>${(user.balance || 0).toFixed(2)}</Text>
+                    <TouchableOpacity
+                      style={styles.balanceEditBtn}
+                      onPress={() => setBalanceModal(user)}
+                    >
+                      <Ionicons name="create" size={16} color="#FFF" />
+                      <Text style={styles.balanceEditText}>Gestionar</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
                   <View style={styles.userStats}>
                     <View style={styles.statItem}>
                       <Ionicons name="cart" size={16} color="#666" />
@@ -1946,6 +1993,71 @@ export default function AdminPanel() {
         </Modal>
       )}
 
+      {/* Balance Management Modal */}
+      {balanceModal && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => { setBalanceModal(null); setBalanceAmount(''); setBalanceAction('add'); }}
+        >
+          <View style={styles.modal}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Gestionar Saldo</Text>
+                <TouchableOpacity onPress={() => { setBalanceModal(null); setBalanceAmount(''); setBalanceAction('add'); }}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalSubtitle}>Usuario: {balanceModal.first_name} {balanceModal.last_name}</Text>
+              <Text style={styles.modalSubtitle}>Email: {balanceModal.email}</Text>
+              <View style={styles.currentBalanceBox}>
+                <Ionicons name="wallet" size={24} color="#FF5000" />
+                <Text style={styles.currentBalanceText}>Saldo actual: ${(balanceModal.balance || 0).toFixed(2)}</Text>
+              </View>
+              
+              {/* Action Selector */}
+              <View style={styles.actionSelector}>
+                <TouchableOpacity 
+                  style={[styles.actionBtn, balanceAction === 'add' && styles.actionBtnActive]}
+                  onPress={() => setBalanceAction('add')}
+                >
+                  <Ionicons name="add-circle" size={20} color={balanceAction === 'add' ? '#FFF' : '#4CAF50'} />
+                  <Text style={[styles.actionBtnText, balanceAction === 'add' && styles.actionBtnTextActive]}>Agregar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.actionBtn, styles.actionBtnSubtract, balanceAction === 'subtract' && styles.actionBtnSubtractActive]}
+                  onPress={() => setBalanceAction('subtract')}
+                >
+                  <Ionicons name="remove-circle" size={20} color={balanceAction === 'subtract' ? '#FFF' : '#F44336'} />
+                  <Text style={[styles.actionBtnText, styles.actionBtnTextSubtract, balanceAction === 'subtract' && styles.actionBtnTextActive]}>Restar</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                style={[styles.input, { marginTop: 16, fontSize: 24, textAlign: 'center' }]}
+                placeholder="0.00"
+                value={balanceAmount}
+                onChangeText={setBalanceAmount}
+                keyboardType="decimal-pad"
+                placeholderTextColor="#999"
+              />
+              <Text style={styles.amountLabel}>Monto a {balanceAction === 'add' ? 'agregar' : 'restar'}</Text>
+              
+              <TouchableOpacity 
+                style={[styles.saveButton, { backgroundColor: balanceAction === 'add' ? '#4CAF50' : '#F44336' }]} 
+                onPress={handleUpdateBalance}
+              >
+                <Ionicons name={balanceAction === 'add' ? 'add-circle' : 'remove-circle'} size={24} color="#FFF" />
+                <Text style={styles.saveButtonText}>
+                  {balanceAction === 'add' ? 'Agregar Saldo' : 'Restar Saldo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Add Payment Method Modal */}
       {showAddPaymentModal && (
         <Modal
@@ -2521,6 +2633,103 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginLeft: 4,
+  },
+  // Balance styles
+  balanceDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8E1',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+  },
+  balanceAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FF5000',
+    marginLeft: 4,
+    flex: 1,
+  },
+  balanceEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF5000',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  balanceEditText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  currentBalanceBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8E1',
+    padding: 16,
+    borderRadius: 10,
+    marginTop: 16,
+    justifyContent: 'center',
+  },
+  currentBalanceText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FF5000',
+    marginLeft: 8,
+  },
+  actionSelector: {
+    flexDirection: 'row',
+    marginTop: 16,
+    gap: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    backgroundColor: '#FFF',
+  },
+  actionBtnActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  actionBtnSubtract: {
+    borderColor: '#F44336',
+  },
+  actionBtnSubtractActive: {
+    backgroundColor: '#F44336',
+    borderColor: '#F44336',
+  },
+  actionBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginLeft: 6,
+  },
+  actionBtnTextSubtract: {
+    color: '#F44336',
+  },
+  actionBtnTextActive: {
+    color: '#FFF',
+  },
+  amountLabel: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
   },
   // Banner styles
   addBannerCard: {

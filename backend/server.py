@@ -1107,6 +1107,58 @@ async def reset_user_password(user_id: str, new_password: dict, verified: bool =
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@api_router.patch("/admin/users/{user_id}/balance")
+async def update_user_balance(user_id: str, balance_data: dict, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update user balance (add or subtract)"""
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        action = balance_data.get("action", "add")  # "add" or "subtract"
+        amount = float(balance_data.get("amount", 0))
+        
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        
+        current_balance = float(user.get("balance", 0))
+        
+        if action == "add":
+            new_balance = current_balance + amount
+        elif action == "subtract":
+            if amount > current_balance:
+                raise HTTPException(status_code=400, detail="Insufficient balance")
+            new_balance = current_balance - amount
+        else:
+            raise HTTPException(status_code=400, detail="Invalid action. Use 'add' or 'subtract'")
+        
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"balance": new_balance}}
+        )
+        
+        # Log the balance change
+        await db.balance_history.insert_one({
+            "user_id": user_id,
+            "action": action,
+            "amount": amount,
+            "previous_balance": current_balance,
+            "new_balance": new_balance,
+            "admin_action": True,
+            "created_at": datetime.utcnow()
+        })
+        
+        return {
+            "message": f"Balance {'added' if action == 'add' else 'subtracted'} successfully",
+            "previous_balance": current_balance,
+            "amount": amount,
+            "new_balance": new_balance
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # ===== GIFT CARDS ADMIN CRUD =====
 
 @api_router.get("/admin/gift-cards")
