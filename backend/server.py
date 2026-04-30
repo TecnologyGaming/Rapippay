@@ -124,14 +124,16 @@ class GiftCardResponse(BaseModel):
 
 # Order Models
 class OrderCreate(BaseModel):
-    order_type: str  # "zinli_recharge" or "gift_card"
+    order_type: str  # "zinli_recharge", "wally_recharge", "online_recharge", "gift_card", "personal_shopper"
     zinli_amount: Optional[float] = None
-    zinli_email: Optional[str] = None  # Required for zinli_recharge
+    zinli_email: Optional[str] = None  # Required for recharge types
     gift_card_id: Optional[str] = None  # Required for gift_card
     gift_card_amount: Optional[float] = None  # For gift_card
-    payment_method: str
-    reference_number: str
-    payment_proof_image: str  # base64
+    payment_method: Optional[str] = None  # Optional for quote requests
+    reference_number: Optional[str] = None  # Optional for quote requests
+    payment_proof_image: Optional[str] = None  # Optional for quote requests
+    shopper_description: Optional[str] = None  # For personal_shopper
+    is_quote_request: Optional[bool] = False  # True for online/shopper that need price negotiation
 
 class OrderResponse(BaseModel):
     id: str
@@ -145,13 +147,16 @@ class OrderResponse(BaseModel):
     gift_card_name: Optional[str]
     gift_card_amount: Optional[float]
     total_cost: float
-    payment_method: str
-    reference_number: str
-    payment_proof_image: str
-    status: str  # "pending", "completed", "rejected"
+    payment_method: Optional[str]
+    reference_number: Optional[str]
+    payment_proof_image: Optional[str]
+    status: str  # "pending", "completed", "rejected", "revoked", "quote_pending"
     delivery_status: Optional[str]  # "pending", "processing", "delivered" (for gift cards)
     gift_card_qr_image: Optional[str]  # base64 QR image uploaded by admin
     gift_card_code: Optional[str]  # alphanumeric code uploaded by admin
+    admin_image: Optional[str] = None  # Image uploaded by admin (receipt, etc.)
+    admin_note: Optional[str] = None  # Note from admin
+    shopper_description: Optional[str] = None  # Personal shopper request description
     created_at: datetime
     updated_at: datetime
 
@@ -548,27 +553,45 @@ async def get_featured_gift_cards():
 
 @api_router.post("/orders", response_model=OrderResponse)
 async def create_order(order_data: OrderCreate, current_user: dict = Depends(get_current_user)):
-    """Create a new order (Zinli recharge or Gift Card purchase)"""
+    """Create a new order (Zinli recharge, Wally recharge, Online recharge, Gift Card, or Personal Shopper)"""
+    
+    valid_order_types = ["zinli_recharge", "wally_recharge", "online_recharge", "gift_card", "personal_shopper"]
+    if order_data.order_type not in valid_order_types:
+        raise HTTPException(status_code=400, detail=f"Invalid order_type. Must be one of: {', '.join(valid_order_types)}")
     
     # Validation based on order type
-    if order_data.order_type == "zinli_recharge":
+    is_quote_request = order_data.is_quote_request or order_data.order_type in ["online_recharge", "personal_shopper"]
+    
+    if order_data.order_type in ["zinli_recharge", "wally_recharge"]:
         if not order_data.zinli_amount or not order_data.zinli_email:
-            raise HTTPException(status_code=400, detail="zinli_amount and zinli_email are required for Zinli recharges")
+            raise HTTPException(status_code=400, detail="Amount and email are required for recharges")
+        if not is_quote_request and (not order_data.payment_method or not order_data.reference_number):
+            raise HTTPException(status_code=400, detail="Payment method and reference are required")
+    elif order_data.order_type == "online_recharge":
+        if not order_data.zinli_amount:
+            raise HTTPException(status_code=400, detail="Amount is required for online recharges")
     elif order_data.order_type == "gift_card":
         if not order_data.gift_card_id or not order_data.gift_card_amount:
             raise HTTPException(status_code=400, detail="gift_card_id and gift_card_amount are required for gift cards")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid order_type. Must be 'zinli_recharge' or 'gift_card'")
+    elif order_data.order_type == "personal_shopper":
+        if not order_data.shopper_description:
+            raise HTTPException(status_code=400, detail="Description is required for personal shopper requests")
     
     # Get system config for calculation
     config = await db.system_config.find_one({"key": "app_config"})
     exchange_rate = config["exchange_rate"]
     commission = config["commission_percent"]
     
-    # Calculate total cost
-    amount = order_data.zinli_amount if order_data.order_type == "zinli_recharge" else order_data.gift_card_amount
-    base_cost = amount * exchange_rate
-    total_cost = base_cost + (base_cost * commission / 100)
+    # Calculate total cost (0 for quote requests)
+    if is_quote_request and order_data.order_type == "personal_shopper":
+        total_cost = 0
+    else:
+        amount = order_data.zinli_amount if order_data.order_type != "gift_card" else order_data.gift_card_amount
+        if amount:
+            base_cost = amount * exchange_rate
+            total_cost = base_cost + (base_cost * commission / 100)
+        else:
+            total_cost = 0
     
     # Get gift card name if applicable
     gift_card_name = None
@@ -591,10 +614,13 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         "payment_method": order_data.payment_method,
         "reference_number": order_data.reference_number,
         "payment_proof_image": order_data.payment_proof_image,
-        "status": "pending",
+        "status": "quote_pending" if is_quote_request else "pending",
         "delivery_status": "pending" if order_data.order_type == "gift_card" else None,
         "gift_card_qr_image": None,
         "gift_card_code": None,
+        "admin_image": None,
+        "admin_note": None,
+        "shopper_description": order_data.shopper_description,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
@@ -621,6 +647,9 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         delivery_status=order_dict["delivery_status"],
         gift_card_qr_image=order_dict["gift_card_qr_image"],
         gift_card_code=order_dict["gift_card_code"],
+        admin_image=order_dict["admin_image"],
+        admin_note=order_dict["admin_note"],
+        shopper_description=order_dict["shopper_description"],
         created_at=order_dict["created_at"],
         updated_at=order_dict["updated_at"]
     )
@@ -695,9 +724,13 @@ async def get_order(order_id: str, current_user: dict = Depends(get_current_user
 # ===== ADMIN ORDER ROUTES =====
 
 @api_router.get("/admin/orders", response_model=List[OrderResponse])
-async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
-    """Admin: Get all orders"""
-    orders = await db.orders.find().sort("created_at", -1).to_list(1000)
+async def get_all_orders(status: Optional[str] = None, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get all orders (with optional status filter)"""
+    query = {}
+    if status:
+        query["status"] = status
+    
+    orders = await db.orders.find(query).sort("created_at", -1).to_list(1000)
     
     return [
         OrderResponse(
@@ -711,14 +744,17 @@ async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
             gift_card_id=order.get("gift_card_id"),
             gift_card_name=order.get("gift_card_name"),
             gift_card_amount=order.get("gift_card_amount"),
-            total_cost=order["total_cost"],
-            payment_method=order["payment_method"],
-            reference_number=order["reference_number"],
-            payment_proof_image=order["payment_proof_image"],
+            total_cost=order.get("total_cost", 0),
+            payment_method=order.get("payment_method"),
+            reference_number=order.get("reference_number"),
+            payment_proof_image=order.get("payment_proof_image"),
             status=order["status"],
             delivery_status=order.get("delivery_status"),
             gift_card_qr_image=order.get("gift_card_qr_image"),
             gift_card_code=order.get("gift_card_code"),
+            admin_image=order.get("admin_image"),
+            admin_note=order.get("admin_note"),
+            shopper_description=order.get("shopper_description"),
             created_at=order["created_at"],
             updated_at=order.get("updated_at", order["created_at"])
         )
@@ -727,11 +763,15 @@ async def get_all_orders(verified: bool = Depends(verify_admin_secret)):
 
 @api_router.patch("/admin/orders/{order_id}", response_model=OrderResponse)
 async def update_order_status(order_id: str, update_data: OrderStatusUpdate, verified: bool = Depends(verify_admin_secret)):
-    """Admin: Approve or reject an order"""
+    """Admin: Approve, reject, or revoke an order"""
     try:
         order = await db.orders.find_one({"_id": ObjectId(order_id)})
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+        
+        valid_statuses = ["pending", "completed", "rejected", "revoked", "quote_pending"]
+        if update_data.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
         
         update_dict = {
             "status": update_data.status,
@@ -742,7 +782,7 @@ async def update_order_status(order_id: str, update_data: OrderStatusUpdate, ver
             update_dict["admin_note"] = update_data.admin_note
         
         # If completing a gift card order, set delivery_status to processing
-        if update_data.status == "completed" and order["order_type"] == "gift_card":
+        if update_data.status == "completed" and order.get("order_type") == "gift_card":
             update_dict["delivery_status"] = "processing"
         
         await db.orders.update_one(
@@ -766,16 +806,42 @@ async def update_order_status(order_id: str, update_data: OrderStatusUpdate, ver
             gift_card_name=updated_order.get("gift_card_name"),
             gift_card_amount=updated_order.get("gift_card_amount"),
             total_cost=updated_order["total_cost"],
-            payment_method=updated_order["payment_method"],
-            reference_number=updated_order["reference_number"],
-            payment_proof_image=updated_order["payment_proof_image"],
+            payment_method=updated_order.get("payment_method"),
+            reference_number=updated_order.get("reference_number"),
+            payment_proof_image=updated_order.get("payment_proof_image"),
             status=updated_order["status"],
             delivery_status=updated_order.get("delivery_status"),
             gift_card_qr_image=updated_order.get("gift_card_qr_image"),
             gift_card_code=updated_order.get("gift_card_code"),
+            admin_image=updated_order.get("admin_image"),
+            admin_note=updated_order.get("admin_note"),
+            shopper_description=updated_order.get("shopper_description"),
             created_at=updated_order["created_at"],
             updated_at=updated_order["updated_at"]
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class AdminImageUpload(BaseModel):
+    admin_image: str  # base64 image
+
+@api_router.patch("/admin/orders/{order_id}/upload-image")
+async def upload_admin_image(order_id: str, image_data: AdminImageUpload, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Upload an image (receipt, proof, etc.) to an order"""
+    try:
+        order = await db.orders.find_one({"_id": ObjectId(order_id)})
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        await db.orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {"$set": {
+                "admin_image": image_data.admin_image,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+        
+        return {"message": "Image uploaded successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
