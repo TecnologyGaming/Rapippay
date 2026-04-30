@@ -895,11 +895,19 @@ export default function AdminPanel() {
         { headers: ADMIN_HEADERS }
       );
 
-      Alert.alert('Éxito', `Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
+      if (Platform.OS === 'web') {
+        alert(`Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
+      } else {
+        Alert.alert('Éxito', `Pedido ${status === 'completed' ? 'aprobado' : 'rechazado'} correctamente`);
+      }
       setSelectedOrder(null);
       await loadData();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo actualizar el pedido');
+      if (Platform.OS === 'web') {
+        alert('Error: No se pudo actualizar el pedido');
+      } else {
+        Alert.alert('Error', 'No se pudo actualizar el pedido');
+      }
     }
   };
 
@@ -1186,19 +1194,22 @@ export default function AdminPanel() {
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
                         style={[styles.actionButton, styles.approveButton]}
-                        onPress={() =>
-                          Alert.alert(
-                            'Aprobar Pedido',
-                            '¿Estás seguro de aprobar este pedido?',
-                            [
-                              { text: 'Cancelar', style: 'cancel' },
-                              {
-                                text: 'Aprobar',
-                                onPress: () => handleUpdateOrder(order.id, 'completed'),
-                              },
-                            ]
-                          )
-                        }
+                        onPress={() => {
+                          if (Platform.OS === 'web') {
+                            if (window.confirm('¿Estás seguro de aprobar este pedido?')) {
+                              handleUpdateOrder(order.id, 'completed');
+                            }
+                          } else {
+                            Alert.alert(
+                              'Aprobar Pedido',
+                              '¿Estás seguro de aprobar este pedido?',
+                              [
+                                { text: 'Cancelar', style: 'cancel' },
+                                { text: 'Aprobar', onPress: () => handleUpdateOrder(order.id, 'completed') },
+                              ]
+                            );
+                          }
+                        }}
                       >
                         <Ionicons name="checkmark-circle" size={20} color="#FFF" />
                         <Text style={styles.actionButtonText}>Aprobar</Text>
@@ -1206,20 +1217,22 @@ export default function AdminPanel() {
 
                       <TouchableOpacity
                         style={[styles.actionButton, styles.rejectButton]}
-                        onPress={() =>
-                          Alert.alert(
-                            'Rechazar Pedido',
-                            '¿Estás seguro de rechazar este pedido?',
-                            [
-                              { text: 'Cancelar', style: 'cancel' },
-                              {
-                                text: 'Rechazar',
-                                style: 'destructive',
-                                onPress: () => handleUpdateOrder(order.id, 'rejected'),
-                              },
-                            ]
-                          )
-                        }
+                        onPress={() => {
+                          if (Platform.OS === 'web') {
+                            if (window.confirm('¿Estás seguro de rechazar este pedido?')) {
+                              handleUpdateOrder(order.id, 'rejected');
+                            }
+                          } else {
+                            Alert.alert(
+                              'Rechazar Pedido',
+                              '¿Estás seguro de rechazar este pedido?',
+                              [
+                                { text: 'Cancelar', style: 'cancel' },
+                                { text: 'Rechazar', style: 'destructive', onPress: () => handleUpdateOrder(order.id, 'rejected') },
+                              ]
+                            );
+                          }
+                        }}
                       >
                         <Ionicons name="close-circle" size={20} color="#FFF" />
                         <Text style={styles.actionButtonText}>Rechazar</Text>
