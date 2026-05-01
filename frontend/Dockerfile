@@ -27,6 +27,9 @@ RUN echo "EXPO_PUBLIC_BACKEND_URL=$EXPO_PUBLIC_BACKEND_URL" > .env
 # Build for web
 RUN npx expo export --platform web
 
+# Copy public files (Open Graph images, favicon, etc.)
+RUN if [ -d "public" ]; then cp -r public/* dist/; fi
+
 # Install serve for static hosting
 RUN npm install -g serve
 

@@ -4,7 +4,7 @@ import type { PropsWithChildren } from "react";
 
 export default function Root({ children }: PropsWithChildren) {
   return (
-    <html lang="en" style={{ height: "100%" }}>
+    <html lang="es" style={{ height: "100%" }}>
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
@@ -12,11 +12,39 @@ export default function Root({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no"
         />
-        {/*
-          Disable body scrolling on web to make ScrollView components work correctly.
-          If you want to enable scrolling, remove `ScrollViewStyleReset` and
-          set `overflow: auto` on the body style below.
-        */}
+        
+        {/* SEO & Basic Meta Tags */}
+        <title>RapiPay - Recargas y Pagos Online</title>
+        <meta name="description" content="RapiPay - Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper. Pagos seguros y rápidos." />
+        <meta name="keywords" content="recargas, zinli, wally, gift cards, pagos online, personal shopper, venezuela" />
+        <meta name="author" content="RapiPay" />
+        
+        {/* Open Graph / Facebook / WhatsApp */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://rapippay.com/" />
+        <meta property="og:title" content="RapiPay - Recargas y Pagos Online" />
+        <meta property="og:description" content="Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper. Pagos seguros y rápidos." />
+        <meta property="og:image" content="https://rapippay.com/og-image.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:site_name" content="RapiPay" />
+        <meta property="og:locale" content="es_ES" />
+        
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:url" content="https://rapippay.com/" />
+        <meta name="twitter:title" content="RapiPay - Recargas y Pagos Online" />
+        <meta name="twitter:description" content="Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper." />
+        <meta name="twitter:image" content="https://rapippay.com/og-image.png" />
+        
+        {/* Theme Color */}
+        <meta name="theme-color" content="#FF5000" />
+        <meta name="msapplication-TileColor" content="#FF5000" />
+        
+        {/* Favicon */}
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/favicon.png" />
+        
         <ScrollViewStyleReset />
         <style
           dangerouslySetInnerHTML={{
