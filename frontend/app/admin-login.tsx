@@ -67,7 +67,7 @@ export default function AdminLogin() {
             <Ionicons name="shield-checkmark" size={64} color="#FF5000" />
           </View>
           <Text style={styles.title}>Panel Administrativo</Text>
-          <Text style={styles.subtitle}>Zinli Recargas</Text>
+          <Text style={styles.subtitle}>Rapippay Admin</Text>
         </View>
 
         <View style={styles.form}>

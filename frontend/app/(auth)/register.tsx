@@ -111,7 +111,7 @@ export default function Register() {
             <Ionicons name="person-add" size={64} color="#FF5000" />
           )}
           <Text style={styles.title}>Crear Cuenta</Text>
-          <Text style={styles.subtitle}>Únete a Zinli Recargas</Text>
+          <Text style={styles.subtitle}>Únete a Rapippay</Text>
         </View>
 
         <View style={styles.form}>

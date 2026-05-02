@@ -84,7 +84,7 @@ export default function Login() {
           ) : (
             <>
               <Ionicons name="wallet" size={64} color="#FF5000" />
-              <Text style={styles.title}>Zinli Recargas</Text>
+              <Text style={styles.title}>Rapippay</Text>
               <Text style={styles.subtitle}>Recarga tu cuenta fácil y rápido</Text>
             </>
           )}

@@ -14,26 +14,26 @@ export default function Root({ children }: PropsWithChildren) {
         />
         
         {/* SEO & Basic Meta Tags */}
-        <title>RapiPay - Recargas y Pagos Online</title>
-        <meta name="description" content="RapiPay - Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper. Pagos seguros y rápidos." />
-        <meta name="keywords" content="recargas, zinli, wally, gift cards, pagos online, personal shopper, venezuela" />
-        <meta name="author" content="RapiPay" />
+        <title>Rapippay - Recargas y Pagos Online</title>
+        <meta name="description" content="Rapippay - Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper. Pagos seguros y rápidos." />
+        <meta name="keywords" content="recargas, zinli, wally, gift cards, pagos online, personal shopper, venezuela, rapippay" />
+        <meta name="author" content="Rapippay" />
         
         {/* Open Graph / Facebook / WhatsApp */}
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://rapippay.com/" />
-        <meta property="og:title" content="RapiPay - Recargas y Pagos Online" />
+        <meta property="og:title" content="Rapippay - Recargas y Pagos Online" />
         <meta property="og:description" content="Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper. Pagos seguros y rápidos." />
         <meta property="og:image" content="https://rapippay.com/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:site_name" content="RapiPay" />
+        <meta property="og:site_name" content="Rapippay" />
         <meta property="og:locale" content="es_ES" />
         
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:url" content="https://rapippay.com/" />
-        <meta name="twitter:title" content="RapiPay - Recargas y Pagos Online" />
+        <meta name="twitter:title" content="Rapippay - Recargas y Pagos Online" />
         <meta name="twitter:description" content="Tu plataforma de recargas Zinli, Wally, Gift Cards y servicios de Personal Shopper." />
         <meta name="twitter:image" content="https://rapippay.com/og-image.png" />
         
