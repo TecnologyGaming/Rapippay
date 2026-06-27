@@ -156,6 +156,18 @@ export default function AdminPanel() {
   const [pushSending, setPushSending] = useState(false);
   const [totalDevices, setTotalDevices] = useState(0);
 
+  // Stripe states
+  const [stripeConfig, setStripeConfig] = useState({
+    secret_key: '',
+    publishable_key: '',
+    webhook_secret: '',
+    is_active: false,
+    webhook_url: ''
+  });
+  const [stripeSecretKey, setStripeSecretKey] = useState('');
+  const [stripePublishableKey, setStripePublishableKey] = useState('');
+  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
+
   // Ubii Pago states
   const [ubiiConfig, setUbiiConfig] = useState({
     client_id: '55c3c808-163c-11f1-898a-0050568717e3',
@@ -235,6 +247,9 @@ export default function AdminPanel() {
       if (configRes.data.ubii_config) {
         setUbiiConfig(configRes.data.ubii_config);
       }
+      
+      // Load Stripe config
+      loadStripeConfig();
     } catch (error) {
       console.error('Error loading data:', error);
       Alert.alert('Error', 'No se pudieron cargar los datos');
@@ -878,6 +893,55 @@ export default function AdminPanel() {
       }
     } finally {
       setUbiiSaving(false);
+    }
+  };
+
+  // Load Stripe config
+  const loadStripeConfig = async () => {
+    try {
+      const response = await axios.get(
+        `${BACKEND_URL}/api/admin/stripe-config`,
+        { headers: ADMIN_HEADERS }
+      );
+      setStripeConfig(response.data);
+    } catch (error) {
+      console.log('Error loading Stripe config:', error);
+    }
+  };
+
+  // Save Stripe config
+  const handleSaveStripeConfig = async () => {
+    try {
+      const updateData: any = {
+        is_active: stripeConfig.is_active
+      };
+      if (stripeSecretKey) updateData.secret_key = stripeSecretKey;
+      if (stripePublishableKey) updateData.publishable_key = stripePublishableKey;
+      if (stripeWebhookSecret) updateData.webhook_secret = stripeWebhookSecret;
+
+      await axios.post(
+        `${BACKEND_URL}/api/admin/stripe-config`,
+        updateData,
+        { headers: ADMIN_HEADERS }
+      );
+      
+      if (Platform.OS === 'web') {
+        alert('Configuración de Stripe guardada correctamente');
+      } else {
+        Alert.alert('Éxito', 'Configuración de Stripe guardada correctamente');
+      }
+      
+      // Reset input fields and reload config
+      setStripeSecretKey('');
+      setStripePublishableKey('');
+      setStripeWebhookSecret('');
+      loadStripeConfig();
+    } catch (error) {
+      if (Platform.OS === 'web') {
+        alert('Error al guardar configuración de Stripe');
+      } else {
+        Alert.alert('Error', 'No se pudo guardar la configuración');
+      }
     }
   };
 
@@ -1635,6 +1699,81 @@ export default function AdminPanel() {
                 <Text style={styles.ubiiInfoText}>
                   Cuando está activo, los usuarios podrán pagar con tarjeta de crédito de forma automática a través de Ubii Pago.
                 </Text>
+              </View>
+            </View>
+            
+            {/* Stripe Configuration */}
+            <View style={styles.ubiiCard}>
+              <View style={styles.ubiiHeader}>
+                <View style={styles.ubiiIconContainer}>
+                  <Ionicons name="card" size={32} color="#6772E5" />
+                </View>
+                <View style={styles.ubiiHeaderText}>
+                  <Text style={[styles.ubiiTitle, { color: '#6772E5' }]}>Stripe</Text>
+                  <Text style={styles.ubiiSubtitle}>Pagos con tarjeta internacional</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.ubiiToggle, stripeConfig.is_active && { backgroundColor: '#6772E5' }]}
+                  onPress={() => setStripeConfig(prev => ({ ...prev, is_active: !prev.is_active }))}
+                >
+                  <Text style={[styles.ubiiToggleText, stripeConfig.is_active && styles.ubiiToggleTextActive]}>
+                    {stripeConfig.is_active ? 'Activo' : 'Inactivo'}
+                  </Text>
+                  <Ionicons 
+                    name={stripeConfig.is_active ? 'checkmark-circle' : 'close-circle'} 
+                    size={18} 
+                    color={stripeConfig.is_active ? '#FFF' : '#666'} 
+                  />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.ubiiConfigSection}>
+                <Text style={styles.inputLabel}>Secret Key (sk_live_... o sk_test_...)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={stripeConfig.secret_key || "Tu Secret Key de Stripe"}
+                  value={stripeSecretKey}
+                  onChangeText={setStripeSecretKey}
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                />
+                
+                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Publishable Key (pk_live_... o pk_test_...)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={stripeConfig.publishable_key || "Tu Publishable Key de Stripe"}
+                  value={stripePublishableKey}
+                  onChangeText={setStripePublishableKey}
+                  placeholderTextColor="#999"
+                />
+                
+                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Webhook Secret (whsec_...)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={stripeConfig.webhook_secret || "Tu Webhook Secret de Stripe"}
+                  value={stripeWebhookSecret}
+                  onChangeText={setStripeWebhookSecret}
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                />
+                
+                <View style={[styles.ubiiInfoBox, { backgroundColor: '#EEF2FF', borderColor: '#6772E5' }]}>
+                  <Ionicons name="link" size={20} color="#6772E5" />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text style={[styles.ubiiInfoText, { color: '#6772E5' }]}>Webhook URL:</Text>
+                    <Text style={{ fontSize: 12, color: '#6772E5' }} selectable>
+                      https://api.rapippay.com/api/webhook/stripe
+                    </Text>
+                  </View>
+                </View>
+                
+                <TouchableOpacity 
+                  style={[styles.saveButton, { backgroundColor: '#6772E5', marginTop: 16 }]} 
+                  onPress={handleSaveStripeConfig}
+                >
+                  <Ionicons name="save" size={24} color="#FFF" />
+                  <Text style={styles.saveButtonText}>Guardar Configuración Stripe</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
