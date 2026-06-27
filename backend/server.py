@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -19,6 +19,7 @@ import json
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import hashlib
+import stripe
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -28,6 +29,9 @@ mongo_url = os.environ.get('MONGO_URL', 'mongodb://mongodb:27017/zinli_recargas'
 db_name = os.environ.get('DB_NAME', 'zinli_recargas')
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
+
+# Stripe configuration (loaded from DB config)
+# Will be set dynamically based on admin configuration
 
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -1710,6 +1714,198 @@ async def ubii_verify_payment(order_number: str, current_user: dict = Depends(ge
             return verify_response.json()
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Error verifying payment: {str(e)}")
+
+# ===== STRIPE PAYMENT ENDPOINTS =====
+
+class StripeConfigUpdate(BaseModel):
+    secret_key: Optional[str] = None
+    publishable_key: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    is_active: bool = True
+
+class StripeCheckoutRequest(BaseModel):
+    order_id: str
+    success_url: str
+    cancel_url: str
+
+@api_router.get("/admin/stripe-config")
+async def get_stripe_config(verified: bool = Depends(verify_admin_secret)):
+    """Admin: Get Stripe configuration (keys hidden)"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    stripe_config = config.get("stripe_config", {}) if config else {}
+    
+    return {
+        "secret_key": "***" + stripe_config.get("secret_key", "")[-4:] if stripe_config.get("secret_key") else "",
+        "publishable_key": stripe_config.get("publishable_key", ""),
+        "webhook_secret": "***" + stripe_config.get("webhook_secret", "")[-4:] if stripe_config.get("webhook_secret") else "",
+        "is_active": stripe_config.get("is_active", False),
+        "webhook_url": "https://api.rapippay.com/api/webhook/stripe"
+    }
+
+@api_router.post("/admin/stripe-config")
+async def update_stripe_config(config_data: StripeConfigUpdate, verified: bool = Depends(verify_admin_secret)):
+    """Admin: Update Stripe configuration"""
+    update_dict = {"stripe_config.is_active": config_data.is_active}
+    
+    if config_data.secret_key:
+        update_dict["stripe_config.secret_key"] = config_data.secret_key
+    if config_data.publishable_key:
+        update_dict["stripe_config.publishable_key"] = config_data.publishable_key
+    if config_data.webhook_secret:
+        update_dict["stripe_config.webhook_secret"] = config_data.webhook_secret
+    
+    await db.system_config.update_one(
+        {"key": "app_config"},
+        {"$set": update_dict}
+    )
+    
+    return {"message": "Stripe configuration updated successfully"}
+
+@api_router.get("/config/stripe-publishable")
+async def get_stripe_publishable_key():
+    """Public: Get Stripe publishable key for frontend"""
+    config = await db.system_config.find_one({"key": "app_config"})
+    stripe_config = config.get("stripe_config", {}) if config else {}
+    
+    if not stripe_config.get("is_active"):
+        raise HTTPException(status_code=400, detail="Stripe is not active")
+    
+    return {
+        "publishable_key": stripe_config.get("publishable_key", "")
+    }
+
+@api_router.post("/stripe/create-checkout-session")
+async def create_stripe_checkout_session(
+    checkout_data: StripeCheckoutRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a Stripe Checkout Session for an order"""
+    # Get Stripe config
+    config = await db.system_config.find_one({"key": "app_config"})
+    stripe_config = config.get("stripe_config", {}) if config else {}
+    
+    if not stripe_config.get("is_active"):
+        raise HTTPException(status_code=400, detail="Stripe payments are not enabled")
+    
+    secret_key = stripe_config.get("secret_key")
+    if not secret_key:
+        raise HTTPException(status_code=400, detail="Stripe is not configured")
+    
+    # Set Stripe API key
+    stripe.api_key = secret_key
+    
+    # Get order
+    try:
+        order = await db.orders.find_one({"_id": ObjectId(checkout_data.order_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order["user_id"] != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not authorized to pay for this order")
+    
+    # Calculate amount in cents (Stripe uses smallest currency unit)
+    amount_cents = int(order["total_cost"] * 100)
+    
+    try:
+        # Create Checkout Session
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"Pedido #{str(order['_id'])[-6:]}",
+                        "description": f"{order.get('order_type', 'Pedido')} - Rapippay",
+                    },
+                    "unit_amount": amount_cents,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=checkout_data.success_url + "?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=checkout_data.cancel_url,
+            metadata={
+                "order_id": str(order["_id"]),
+                "user_id": str(current_user["_id"])
+            }
+        )
+        
+        # Update order with Stripe session ID
+        await db.orders.update_one(
+            {"_id": ObjectId(checkout_data.order_id)},
+            {"$set": {
+                "stripe_session_id": session.id,
+                "payment_method": "stripe",
+                "updated_at": datetime.utcnow()
+            }}
+        )
+        
+        return {
+            "checkout_url": session.url,
+            "session_id": session.id
+        }
+        
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Stripe webhook endpoint"""
+    # Get Stripe config
+    config = await db.system_config.find_one({"key": "app_config"})
+    stripe_config = config.get("stripe_config", {}) if config else {}
+    
+    webhook_secret = stripe_config.get("webhook_secret")
+    if not webhook_secret:
+        raise HTTPException(status_code=400, detail="Webhook secret not configured")
+    
+    stripe.api_key = stripe_config.get("secret_key")
+    
+    # Get raw body
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, webhook_secret
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError as e:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    
+    # Handle the event
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        order_id = session.get("metadata", {}).get("order_id")
+        
+        if order_id:
+            # Update order status
+            await db.orders.update_one(
+                {"_id": ObjectId(order_id)},
+                {"$set": {
+                    "status": "pending",
+                    "payment_status": "paid",
+                    "stripe_payment_intent": session.get("payment_intent"),
+                    "reference_number": f"STRIPE-{session.get('payment_intent', '')[-8:]}",
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+    
+    elif event["type"] == "payment_intent.succeeded":
+        payment_intent = event["data"]["object"]
+        # Log successful payment
+        logger.info(f"PaymentIntent succeeded: {payment_intent['id']}")
+    
+    elif event["type"] == "payment_intent.payment_failed":
+        payment_intent = event["data"]["object"]
+        # Log failed payment
+        logger.info(f"PaymentIntent failed: {payment_intent['id']}")
+    
+    return {"status": "success"}
 
 # Include router
 app.include_router(api_router)
